@@ -218,8 +218,8 @@ def _ai_retouch_plan(img, instruction, history):
 
 def _ty_image_edit(img, edit, ref_image=""):
     """通义 qwen-image-edit-plus：base64 传图 + 编辑指令。
-    ref_image 为可选参考图（data:image/...;base64,...）：参考图在前、底图在后
-    （输出比例以最后一张图为准）。成功返回 (PIL图, None)，失败 (None, 错误)。"""
+    ref_image 为可选参考图：单个 data URI 或列表（最多取 2 张，通义限制总图数 ≤3）。
+    参考图在前、底图在后（输出比例以最后一张图为准）。成功返回 (PIL图, None)，失败 (None, 错误)。"""
     cfg = _load_cfg()
     key = cfg.get("ty_api_key", "")
     if not key:
@@ -229,9 +229,11 @@ def _ty_image_edit(img, edit, ref_image=""):
     pic.thumbnail((2048, 2048))  # 官方建议宽高均在 384~3072 之间
     pic.save(buf, "JPEG", quality=90)
     b64 = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
-    content = []
-    if ref_image:  # 多图：参考图在前
-        content.append({"image": ref_image})
+    if isinstance(ref_image, (list, tuple)):
+        refs = [r for r in ref_image if str(r).startswith("data:image")]
+    else:
+        refs = [ref_image] if ref_image else []
+    content = [{"image": r} for r in refs[:2]]
     content += [{"image": b64}, {"text": edit}]
     import requests as _req
     try:
@@ -256,8 +258,9 @@ def _ty_image_edit(img, edit, ref_image=""):
         return None, f"通义编辑异常: {e}"
 
 
-def _ty_doc_edit(img, rect_vals, instruction):
-    """文档模式：框选区域裁出 → 通义编辑 → 原样贴回（边缘羽化），区域外像素完全不变"""
+def _ty_doc_edit(img, rect_vals, instruction, ref_images=None):
+    """区域编辑：框选区域裁出 → 通义编辑 → 原样贴回（边缘羽化），区域外像素完全不变。
+    ref_images 可选：要加入的人/物体参考图（最多 2 张）。"""
     from PIL import ImageDraw, ImageFilter
     rx, ry, rw, rh = rect_vals
     W, H = img.size
@@ -270,8 +273,8 @@ def _ty_doc_edit(img, rect_vals, instruction):
     scale = min(max(1.0, 512 / min(cw, ch)), 2048 / max(cw, ch))
     if scale > 1.0:
         crop = crop.resize((int(cw * scale), int(ch * scale)), Image.LANCZOS)
-    edited, err = _ty_image_edit(crop, instruction
-                                 + "。只改动要求的内容，其余文字、排版和格式保持不变。")
+    edited, err = _ty_image_edit(crop, instruction + "。只改动要求的内容，其余部分保持原样。",
+                                 ref_images or "")
     if edited is None:
         return None, err
     edited = edited.resize((cw, ch), Image.LANCZOS)
@@ -316,33 +319,46 @@ def _mm_redraw(img, gen_prompt, cfg, token):
 
 # ---------------- 修图主接口 ----------------
 
+def _parse_rect(rect):
+    """归一化矩形 {x,y,w,h} → (rx,ry,rw,rh)，无效返回 None"""
+    try:
+        rx, ry = float(rect.get("x")), float(rect.get("y"))
+        rw, rh = float(rect.get("w")), float(rect.get("h"))
+        if 0 <= rx < 1 and 0 <= ry < 1 and 0 < rw <= 1 and 0 < rh <= 1 \
+                and rx + rw <= 1.05 and ry + rh <= 1.05:
+            return (rx, ry, rw, rh)
+    except (TypeError, ValueError, AttributeError):
+        pass
+    return None
+
+
+def _region_desc(rx, ry, rw, rh):
+    """归一化矩形 → 中文位置描述，融入编辑指令"""
+    cx, cy = rx + rw / 2, ry + rh / 2
+    hz = "左侧" if cx < 0.33 else "右侧" if cx > 0.67 else \
+        ("中央" if 0.4 <= cx <= 0.6 else ("中央偏左" if cx < 0.5 else "中央偏右"))
+    vt = "上部" if cy < 0.33 else "下部" if cy > 0.67 else \
+        ("中部" if 0.4 <= cy <= 0.6 else ("中部偏上" if cy < 0.5 else "中部偏下"))
+    return f"画面{vt}{hz}区域（约占画面宽 {int(rw * 100)}%、高 {int(rh * 100)}%）"
+
+
 @app.route("/api/retouch", methods=["POST"])
 def api_retouch():
     """对话式 AI 修图。只出预览，不动上传原图。
     参数：token（上传图）、instruction、base_token（上次结果继续改）、
-    history、rect（框选区域）、ref_image（参考图 data URI）、doc_mode"""
+    history、rect（框选区域）、ref_image（参考图 data URI）、doc_mode、
+    edits（批量区域修改 [{rect,instruction}]）、ref_images（多参考图列表）"""
     data = request.get_json(silent=True) or {}
     up_token = os.path.basename(str(data.get("token") or "").strip())
     instruction = (data.get("instruction") or "").strip()
     base_token = os.path.basename(str(data.get("base_token") or "").strip())
     history = data.get("history") or []
-    rect = data.get("rect") or {}
-    region_desc, rect_vals = "", None
-    try:  # 归一化矩形 → 中文位置描述，融入编辑指令
-        rx, ry = float(rect.get("x")), float(rect.get("y"))
-        rw, rh = float(rect.get("w")), float(rect.get("h"))
-        if 0 <= rx < 1 and 0 <= ry < 1 and 0 < rw <= 1 and 0 < rh <= 1 \
-                and rx + rw <= 1.05 and ry + rh <= 1.05:
-            rect_vals = (rx, ry, rw, rh)
-            cx, cy = rx + rw / 2, ry + rh / 2
-            hz = "左侧" if cx < 0.33 else "右侧" if cx > 0.67 else \
-                ("中央" if 0.4 <= cx <= 0.6 else ("中央偏左" if cx < 0.5 else "中央偏右"))
-            vt = "上部" if cy < 0.33 else "下部" if cy > 0.67 else \
-                ("中部" if 0.4 <= cy <= 0.6 else ("中部偏上" if cy < 0.5 else "中部偏下"))
-            region_desc = f"画面{vt}{hz}区域（约占画面宽 {int(rw * 100)}%、高 {int(rh * 100)}%）"
-    except (TypeError, ValueError):
-        pass
-    if not instruction:
+    rect_vals = _parse_rect(data.get("rect") or {})
+    region_desc = _region_desc(*rect_vals) if rect_vals else ""
+    edits = data.get("edits") or []
+    ref_images = [r for r in (data.get("ref_images") or [])
+                  if str(r).startswith("data:image")][:2]
+    if not instruction and not edits:
         return jsonify({"error": "请填写修图要求"}), 400
     if region_desc:
         instruction = instruction + "。修改区域：" + region_desc
@@ -372,6 +388,38 @@ def api_retouch():
     token = f"rt_{uuid.uuid4().hex[:12]}"
 
     if ty_key:
+        if edits:
+            # 批量区域修改：逐块 裁剪→通义编辑→羽化贴回（区域外像素不动），PNG 输出
+            results, done = [], []
+            out = img
+            for i, e in enumerate(edits[:6]):
+                e = e or {}
+                instr = str(e.get("instruction") or "").strip()
+                rv = _parse_rect(e.get("rect") or {})
+                if not instr:
+                    results.append(f"区域{i + 1}缺少修改描述")
+                    continue
+                if not rv:
+                    results.append(f"区域{i + 1}框选无效")
+                    continue
+                if ref_images:
+                    instr = (f"前面{len(ref_images)}张图片是要添加的人/物体的参考图，"
+                             "最后一张是要修改的图。把参考图中的人/物体自然地加入图中，"
+                             "外形尽量贴近参考图，大小、透视和光影与底图协调。"
+                             "具体要求：" + instr)
+                out2, err = _ty_doc_edit(out, rv, instr, ref_images)
+                if out2 is None:
+                    results.append(f"区域{i + 1}失败：{err}")
+                else:
+                    out = out2
+                    done.append(i + 1)
+            if not done:
+                return jsonify({"error": "修改失败：" + "；".join(results)}), 502
+            out.save(os.path.join(PREVIEW_DIR, token + ".png"), "PNG")
+            reply = f"已完成 {len(done)}/{min(len(edits), 6)} 块区域修改"
+            if results:
+                reply += "（" + "；".join(results) + "）"
+            return jsonify({"token": token, "ext": "png", "reply": reply})
         reply = ""
         edit = instruction
         if api_key:  # 理解层失败不至于不能用——退回用户原话当编辑指令
@@ -385,7 +433,8 @@ def api_retouch():
             # 文档模式：只编辑框选区域，区域外像素不动，PNG 无损保存
             if not rect_vals:
                 return jsonify({"error": "文档模式请先在图片上框选要修改的区域"}), 400
-            out, err = _ty_doc_edit(img, rect_vals, instruction)
+            out, err = _ty_doc_edit(img, rect_vals, instruction
+                                    + "。其余文字、排版和格式保持不变")
             if out is None:
                 return jsonify({"error": err}), 502
             out.save(os.path.join(PREVIEW_DIR, token + ".png"), "PNG")

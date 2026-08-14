@@ -111,6 +111,20 @@ button{font-family:inherit;cursor:pointer;border:none}
 .ref-bar img{width:44px;height:44px;object-fit:cover;border-radius:8px}
 .ref-bar .rn{flex:1;font-size:12.5px;color:#6d28d9}
 .ref-bar .rx{color:var(--warn);font-size:16px;background:none}
+.ref-item{position:relative;display:inline-block}
+.ref-item button{position:absolute;top:-6px;right:-6px;width:16px;height:16px;border-radius:50%;
+  background:#dc2626;color:#fff;font-size:10px;line-height:1;padding:0}
+.region-panel{display:none;margin:0 18px 10px;padding:10px 12px;background:#f4f6ff;
+  border:1px solid #dbe1ff;border-radius:12px;flex-direction:column;gap:8px}
+.region-panel.show{display:flex}
+.rg-hd{display:flex;justify-content:space-between;align-items:center;
+  font-size:12.5px;font-weight:700;color:#4f46e5}
+.rg-row{display:flex;align-items:center;gap:8px}
+.rg-badge{background:var(--accent);color:#fff;font-size:11px;padding:2px 8px;border-radius:6px;white-space:nowrap}
+.rg-row input{flex:1;padding:7px 10px;border:1px solid var(--line);border-radius:8px;
+  font-size:13px;outline:none;font-family:inherit}
+.rg-row input:focus{border-color:var(--accent)}
+.rg-x{color:var(--warn);background:none;font-size:13px}
 .chat-input{display:flex;gap:10px;padding:14px 18px;border-top:1px solid var(--line)}
 .chat-input textarea{flex:1;resize:none;height:52px;padding:10px 12px;border-radius:12px;
   border:1px solid var(--line);font-family:inherit;font-size:14px;outline:none;transition:.15s}
@@ -179,6 +193,7 @@ button{font-family:inherit;cursor:pointer;border:none}
     <div class="canvas-wrap">
       <div class="img-stage" id="stage">
         <img id="mainImg" alt="底图">
+        <div id="rectsLayer" style="position:absolute;inset:0;pointer-events:none"></div>
         <div class="rect-box" id="rectBox"><span class="rect-tag" id="rectTag">修改区域</span></div>
       </div>
     </div>
@@ -192,7 +207,7 @@ button{font-family:inherit;cursor:pointer;border:none}
     </div>
     <div class="chat-body" id="chatBody">
       <div class="msg ai">你好！我是你的 AI 修图师。<br>直接告诉我怎么改，例如：「把天空变成湛蓝色」「去掉右边的人」「在桌上加一杯咖啡」。</div>
-      <div class="msg ai">📌 两个进阶用法：<br><br><b>▣ 框选区域</b>：点上方「框选区域」，在图上拖出一个框，再描述需求（如「框里加一只猫」「把框内的人去掉」），就只会改框选的位置。<br><br><b>📎 参考图</b>：点右上的「参考图」上传一张照片，AI 会把里面的人/物体尽量原样加进当前图片；不上传则由 AI 自由发挥。参考图用一次后自动清除。<br><br>改票据、文档里的文字时，先框选再打开「📄 文档模式」，框外内容一个像素都不会动。</div>
+      <div class="msg ai">📌 两个进阶用法：<br><br><b>▣ 框选区域</b>：点上方「框选区域」，在图上拖框，可连续框多块，每块单独填写修改需求后一次性提交（如「框里加一只猫」「把框内的人去掉」），只改框选位置。<br><br><b>📎 参考图</b>：点右上的「参考图」上传照片（最多 2 张），AI 会把里面的人/物体尽量原样加进当前图片；不上传则由 AI 自由发挥。参考图用一次后自动清除。<br><br>改票据、文档里的文字时，先框选再打开「📄 文档模式」，框外内容一个像素都不会动。</div>
     </div>
     <div class="chips">
       <button class="chip" onclick="useChip(this)">把天空变蓝</button>
@@ -201,10 +216,11 @@ button{font-family:inherit;cursor:pointer;border:none}
       <button class="chip" onclick="useChip(this)">整体色调调暖</button>
     </div>
     <div class="ref-bar" id="refBar">
-      <img id="refThumb" alt="参考图">
-      <span class="rn">已附加参考图，将按它添加人/物体（用一次即清除）</span>
+      <span id="refThumbs" style="display:flex;gap:6px"></span>
+      <span class="rn">已附加参考图，将按它添加人/物体（最多 2 张，用一次即清除）</span>
       <button class="rx" onclick="clearRef()">✕</button>
     </div>
+    <div class="region-panel" id="regionPanel"></div>
     <div class="chat-input">
       <textarea id="inp" placeholder="描述你想要的修改…（Enter 发送，Shift+Enter 换行）"
         onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg()}"></textarea>
@@ -227,7 +243,7 @@ button{font-family:inherit;cursor:pointer;border:none}
 <script>
 let curToken='', curW=0, curH=0;        // 上传原图
 let rtStack=[], rtFwd=[], rtExt={}; // 已应用步骤{token,text} / 可重做步骤 / 结果扩展名
-let rtRect=null, rectMode=false, docMode=false, busy=false, refImage='';
+let rtRegions=[], rectMode=false, docMode=false, busy=false, refImages=[];
 const $=id=>document.getElementById(id);
 
 /* ---------- 上传 ---------- */
@@ -256,17 +272,18 @@ function enterWorkspace(){
   $('hero').style.display='none';
   $('workspace').classList.add('show');
   $('navNew').style.display='';
+  $('mainImg').onload=renderRegions;
   $('mainImg').src='/api/image/'+curToken;
   updateCanvas();
 }
 function resetAll(){
-  rtStack=[];rtFwd=[];rtExt={};rtRect=null;refImage='';docMode=false;busy=false;
+  rtStack=[];rtFwd=[];rtExt={};rtRegions=[];refImages=[];docMode=false;busy=false;
   $('workspace').classList.remove('show');
   $('hero').style.display='';
   $('navNew').style.display='none';
   $('chatBody').innerHTML='<div class="msg ai">你好！我是你的 AI 修图师。<br>直接告诉我怎么改，例如：「把天空变成湛蓝色」「去掉右边的人」「在桌上加一杯咖啡」。</div>'
-    +'<div class="msg ai">📌 两个进阶用法：<br><br><b>▣ 框选区域</b>：点上方「框选区域」，在图上拖出一个框，再描述需求（如「框里加一只猫」「把框内的人去掉」），就只会改框选的位置。<br><br><b>📎 参考图</b>：点右上的「参考图」上传一张照片，AI 会把里面的人/物体尽量原样加进当前图片；不上传则由 AI 自由发挥。参考图用一次后自动清除。<br><br>改票据、文档里的文字时，先框选再打开「📄 文档模式」，框外内容一个像素都不会动。</div>';
-  updateRefBar();updateToolbar();clearRect();
+    +'<div class="msg ai">📌 两个进阶用法：<br><br><b>▣ 框选区域</b>：点上方「框选区域」，在图上拖框，可连续框多块，每块单独填写修改需求后一次性提交（如「框里加一只猫」「把框内的人去掉」），只改框选位置。<br><br><b>📎 参考图</b>：点右上的「参考图」上传照片（最多 2 张），AI 会把里面的人/物体尽量原样加进当前图片；不上传则由 AI 自由发挥。参考图用一次后自动清除。<br><br>改票据、文档里的文字时，先框选再打开「📄 文档模式」，框外内容一个像素都不会动。</div>';
+  updateRefBar();updateToolbar();clearRect();clearRegions();
 }
 
 /* ---------- 画布显示 ---------- */
@@ -291,17 +308,17 @@ function downloadCurrent(){
   a.href='/api/download/'+t;a.download='';document.body.appendChild(a);a.click();a.remove();
 }
 
-/* ---------- 框选 ---------- */
+/* ---------- 框选（支持多块） ---------- */
 function toggleRect(){
   rectMode=!rectMode;
   $('stage').classList.toggle('selecting',rectMode);
   updateToolbar();
-  if(rectMode)toast('在图片上拖动，框出要修改的区域');
+  if(rectMode)toast('在图片上拖动框选，可连续框多块');
 }
 function toggleDoc(){
   docMode=!docMode;updateToolbar();
   toast(docMode?'文档模式已开：只修改框选区域，其余像素不变':'文档模式已关');
-  if(docMode&&!rtRect){rectMode=true;$('stage').classList.add('selecting');updateToolbar();toast('请先框选要修改的区域');}
+  if(docMode&&!rtRegions.length){rectMode=true;$('stage').classList.add('selecting');updateToolbar();toast('请先框选要修改的区域');}
 }
 (function(){
   const st=$('stage');let sx,sy,drawing=false;
@@ -325,28 +342,61 @@ function toggleDoc(){
     const box=$('rectBox');
     const x=parseFloat(box.style.left),y=parseFloat(box.style.top);
     const w=parseFloat(box.style.width),h=parseFloat(box.style.height);
+    box.style.display='none';
     if(w>8&&h>8){
-      rtRect={x:x/r.width,y:y/r.height,w:w/r.width,h:h/r.height};
-      toast('已框选区域，发送时生效');
-    }else clearRect();
-    rectMode=false;$('stage').classList.remove('selecting');updateToolbar();
+      rtRegions.push({x:x/r.width,y:y/r.height,w:w/r.width,h:h/r.height,desc:''});
+      toast('已添加 区域'+rtRegions.length+'，在右侧填写这一块的修改需求');
+      renderRegions();
+    }
+    // 保持框选模式，方便继续框下一块；再点一次「框选区域」退出
   });
 })();
 function drawRect(x,y,w,h){
   const b=$('rectBox');
   b.style.display='block';b.style.left=x+'px';b.style.top=y+'px';
   b.style.width=w+'px';b.style.height=h+'px';
-  $('rectTag').textContent='修改区域 '+Math.round(w)+'×'+Math.round(h);
+  $('rectTag').textContent='区域'+(rtRegions.length+1)+' '+Math.round(w)+'×'+Math.round(h);
 }
-function clearRect(){rtRect=null;$('rectBox').style.display='none'}
+function clearRect(){$('rectBox').style.display='none'}
+function renderRegions(){
+  const layer=$('rectsLayer');layer.innerHTML='';
+  const r=$('mainImg').getBoundingClientRect();
+  if(!r.width)return;
+  rtRegions.forEach((g,i)=>{
+    const d=document.createElement('div');
+    d.style.cssText='position:absolute;border:2px solid var(--accent);background:rgba(99,102,241,.12);'
+      +'border-radius:4px;left:'+(g.x*r.width)+'px;top:'+(g.y*r.height)+'px;width:'
+      +(g.w*r.width)+'px;height:'+(g.h*r.height)+'px;';
+    d.innerHTML='<span style="position:absolute;top:-22px;left:-2px;background:var(--accent);color:#fff;'
+      +'font-size:11px;padding:1px 7px;border-radius:6px;white-space:nowrap">区域'+(i+1)+'</span>';
+    layer.appendChild(d);
+  });
+  renderRegionPanel();
+}
+function renderRegionPanel(){
+  const p=$('regionPanel');
+  if(!rtRegions.length){p.classList.remove('show');p.innerHTML='';return}
+  p.classList.add('show');
+  p.innerHTML='<div class="rg-hd"><span>🎯 批量修改 '+rtRegions.length
+    +' 块区域：每块填需求，一次提交</span><button class="rg-x" onclick="clearRegions()">清空</button></div>'
+    +rtRegions.map((g,i)=>'<div class="rg-row"><span class="rg-badge">区域'+(i+1)+'</span>'
+      +'<input placeholder="这一块的修改需求…" value="'+esc(g.desc||'')+'" oninput="rtRegions['+i+'].desc=this.value">'
+      +'<button class="rg-x" onclick="delRegion('+i+')">✕</button></div>').join('');
+}
+function delRegion(i){rtRegions.splice(i,1);renderRegions()}
+function clearRegions(){rtRegions=[];renderRegions()}
+window.addEventListener('resize',renderRegions);
 
-/* ---------- 参考图 ---------- */
-function pickRef(){$('refInput').click()}
+/* ---------- 参考图（最多 2 张） ---------- */
+function pickRef(){
+  if(refImages.length>=2){toast('参考图最多 2 张（AI 多图上限）');return}
+  $('refInput').click();
+}
 $('refInput').onchange=async e=>{
   const f=e.target.files[0];e.target.value='';if(!f)return;
-  refImage=await compressImage(f);
-  $('refThumb').src=refImage;updateRefBar();
-  toast('参考图已附加');
+  refImages.push(await compressImage(f));
+  updateRefBar();
+  toast('参考图已附加（'+refImages.length+'/2）');
 };
 function compressImage(file){
   return new Promise(res=>{
@@ -361,8 +411,13 @@ function compressImage(file){
     img.src=URL.createObjectURL(file);
   });
 }
-function clearRef(){refImage='';updateRefBar()}
-function updateRefBar(){$('refBar').classList.toggle('show',!!refImage)}
+function delRef(i){refImages.splice(i,1);updateRefBar()}
+function clearRef(){refImages=[];updateRefBar()}
+function updateRefBar(){
+  $('refBar').classList.toggle('show',refImages.length>0);
+  $('refThumbs').innerHTML=refImages.map((r,i)=>'<span class="ref-item"><img src="'+r
+    +'"><button onclick="delRef('+i+')">✕</button></span>').join('');
+}
 
 /* ---------- 对话 ---------- */
 function useChip(el){$('inp').value=el.textContent;$('inp').focus()}
@@ -375,20 +430,35 @@ function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g
 
 async function sendMsg(){
   const text=$('inp').value.trim();
-  if(!text||busy)return;
-  if(docMode&&!rtRect){toast('文档模式需要先框选区域');return}
+  if(busy)return;
+  const batch=rtRegions.length>0;
+  if(!text&&!batch)return;
+  if(docMode&&!batch){toast('文档模式需要先框选区域');return}
+  let edits=null;
+  if(batch){
+    edits=[];
+    for(const g of rtRegions){
+      const d=(g.desc||'').trim()||text;  // 区域没填描述时用输入框内容
+      if(!d){toast('请给每个区域填写修改需求');return}
+      edits.push({rect:{x:g.x,y:g.y,w:g.w,h:g.h},instruction:d});
+    }
+  }
   busy=true;$('btnSend').disabled=true;updateToolbar();
   let tags='';
-  if(rtRect)tags+='<span class="tag">▣ 框选区域</span>';
-  if(refImage)tags+='<span class="tag">📎 参考图</span>';
+  if(batch)tags+='<span class="tag">▣ 框选 '+rtRegions.length+' 块</span>';
+  if(refImages.length)tags+='<span class="tag">📎 参考图 ×'+refImages.length+'</span>';
   if(docMode)tags+='<span class="tag">📄 文档模式</span>';
-  addMsg('user',esc(text)+(tags?'<div class="tags">'+tags+'</div>':''));
+  const showText=batch
+    ? '🛠 一次性修改 '+edits.length+' 块区域：'+edits.map((e,i)=>'区域'+(i+1)+'「'+e.instruction+'」').join('，')
+    : text;
+  addMsg('user',esc(showText)+(tags?'<div class="tags">'+tags+'</div>':''));
   $('inp').value='';
   const typing=document.createElement('div');typing.className='typing';typing.innerHTML='<i></i><i></i><i></i>';
   $('chatBody').appendChild(typing);$('chatBody').scrollTop=$('chatBody').scrollHeight;
-  const payload={token:curToken,instruction:text,base_token:currentToken(),
-    history:rtStack.slice(-6).map(s=>s.text),rect:rtRect,ref_image:refImage,doc_mode:docMode};
-  const usedRef=!!refImage;
+  const payload={token:curToken,base_token:currentToken(),
+    history:rtStack.slice(-6).map(s=>s.text)};
+  if(batch){payload.edits=edits;payload.ref_images=refImages;}
+  else{payload.instruction=text;payload.ref_image=refImages[0]||'';payload.doc_mode=docMode;}
   clearRef();
   try{
     const r=await fetch('/api/retouch',{method:'POST',
@@ -397,7 +467,7 @@ async function sendMsg(){
     const d=await r.json();
     typing.remove();
     if(!r.ok)throw new Error(d.error||'修图失败');
-    rtStack.push({token:d.token,text:text});rtFwd=[];  // 新修改使重做分支失效
+    rtStack.push({token:d.token,text:showText.slice(0,120)});rtFwd=[];  // 新修改使重做分支失效
     rtExt[d.token]=d.ext||'jpg';
     const url='/api/preview/'+d.token;
     const m=addMsg('ai',esc(d.reply||'改好了，看看效果')
@@ -405,7 +475,7 @@ async function sendMsg(){
       +'<div class="acts"><button class="btn sm ghost" onclick="dlToken(\''+d.token+'\')">⬇ 下载</button>'
       +'<button class="btn sm ghost" onclick="openLb(\''+d.token+'\')">🔍 放大看</button></div>');
     m.querySelector('img').onload=()=>{$('chatBody').scrollTop=$('chatBody').scrollHeight};
-    clearRect();
+    clearRect();clearRegions();
     updateCanvas();
   }catch(e){
     typing.remove();
