@@ -170,7 +170,8 @@ button{font-family:inherit;cursor:pointer;border:none}
       <div class="toolbar">
         <button class="btn sm ghost" id="btnRect" onclick="toggleRect()">▣ 框选区域</button>
         <button class="btn sm ghost" id="btnDoc" onclick="toggleDoc()">📄 文档模式</button>
-        <button class="btn sm ghost" onclick="goBack()" id="btnBack" disabled>« 上一步</button>
+        <button class="btn sm ghost" onclick="goBack()" id="btnBack" disabled>« 向后一步</button>
+        <button class="btn sm ghost" onclick="goFwd()" id="btnFwd" disabled>向前一步 »</button>
         <button class="btn sm ghost" onclick="goOriginal()" id="btnReset" disabled>↺ 原图</button>
         <button class="btn sm primary" onclick="downloadCurrent()" id="btnDl" disabled>⬇ 下载</button>
       </div>
@@ -224,7 +225,7 @@ button{font-family:inherit;cursor:pointer;border:none}
 
 <script>
 let curToken='', curW=0, curH=0;        // 上传原图
-let rtStack=[], rtHistory=[], rtExt={}; // 结果栈 / 对话历史 / 结果扩展名
+let rtStack=[], rtFwd=[], rtExt={}; // 已应用步骤{token,text} / 可重做步骤 / 结果扩展名
 let rtRect=null, rectMode=false, docMode=false, busy=false, refImage='';
 const $=id=>document.getElementById(id);
 
@@ -258,7 +259,7 @@ function enterWorkspace(){
   updateCanvas();
 }
 function resetAll(){
-  rtStack=[];rtHistory=[];rtExt={};rtRect=null;refImage='';docMode=false;busy=false;
+  rtStack=[];rtFwd=[];rtExt={};rtRect=null;refImage='';docMode=false;busy=false;
   $('workspace').classList.remove('show');
   $('hero').style.display='';
   $('navNew').style.display='none';
@@ -267,7 +268,7 @@ function resetAll(){
 }
 
 /* ---------- 画布显示 ---------- */
-function currentToken(){return rtStack.length?rtStack[rtStack.length-1]:''}
+function currentToken(){return rtStack.length?rtStack[rtStack.length-1].token:''}
 function updateCanvas(){
   const t=currentToken();
   $('mainImg').src=t?('/api/preview/'+t):('/api/image/'+curToken);
@@ -276,6 +277,7 @@ function updateCanvas(){
 function updateToolbar(){
   const has=rtStack.length>0;
   $('btnBack').disabled=!has||busy;
+  $('btnFwd').disabled=!rtFwd.length||busy;
   $('btnReset').disabled=!has||busy;
   $('btnDl').disabled=busy||(!has&&!curToken);
   $('btnDoc').classList.toggle('on',docMode);
@@ -383,7 +385,7 @@ async function sendMsg(){
   const typing=document.createElement('div');typing.className='typing';typing.innerHTML='<i></i><i></i><i></i>';
   $('chatBody').appendChild(typing);$('chatBody').scrollTop=$('chatBody').scrollHeight;
   const payload={token:curToken,instruction:text,base_token:currentToken(),
-    history:rtHistory.slice(-6),rect:rtRect,ref_image:refImage,doc_mode:docMode};
+    history:rtStack.slice(-6).map(s=>s.text),rect:rtRect,ref_image:refImage,doc_mode:docMode};
   const usedRef=!!refImage;
   clearRef();
   try{
@@ -393,7 +395,7 @@ async function sendMsg(){
     const d=await r.json();
     typing.remove();
     if(!r.ok)throw new Error(d.error||'修图失败');
-    rtStack.push(d.token);rtHistory.push(text);
+    rtStack.push({token:d.token,text:text});rtFwd=[];  // 新修改使重做分支失效
     rtExt[d.token]=d.ext||'jpg';
     const url='/api/preview/'+d.token;
     const m=addMsg('ai',esc(d.reply||'改好了，看看效果')
@@ -412,15 +414,21 @@ async function sendMsg(){
 
 function goBack(){
   if(!rtStack.length)return;
-  rtStack.pop();rtHistory.pop();
+  rtFwd.push(rtStack.pop());
   updateCanvas();
-  addMsg('ai','已回到上一步。'+(rtStack.length?'当前是第 '+rtStack.length+' 次修改的结果。':'当前是原图。'));
+  addMsg('ai','已向后一步。'+(rtStack.length?'当前是第 '+rtStack.length+' 次修改的结果。':'当前是原图。'));
+}
+function goFwd(){
+  if(!rtFwd.length)return;
+  rtStack.push(rtFwd.pop());
+  updateCanvas();
+  addMsg('ai','已向前一步，当前是第 '+rtStack.length+' 次修改的结果。');
 }
 function goOriginal(){
   if(!rtStack.length)return;
-  rtStack=[];rtHistory=[];
+  while(rtStack.length)rtFwd.push(rtStack.pop());  // 全部进重做栈，仍可向前找回
   updateCanvas();
-  addMsg('ai','已回到原图，可以重新开始修。');
+  addMsg('ai','已回到原图，可以重新开始修（也可点「向前一步」找回修改）。');
 }
 
 /* ---------- 灯箱 ---------- */
