@@ -192,6 +192,7 @@ button{font-family:inherit;cursor:pointer;border:none}
     </div>
     <div class="chat-body" id="chatBody">
       <div class="msg ai">你好！我是你的 AI 修图师。<br>直接告诉我怎么改，例如：「把天空变成湛蓝色」「去掉右边的人」「在桌上加一杯咖啡」。</div>
+      <div class="msg ai">📌 两个进阶用法：<br><br><b>▣ 框选区域</b>：点上方「框选区域」，在图上拖出一个框，再描述需求（如「框里加一只猫」「把框内的人去掉」），就只会改框选的位置。<br><br><b>📎 参考图</b>：点右上的「参考图」上传一张照片，AI 会把里面的人/物体尽量原样加进当前图片；不上传则由 AI 自由发挥。参考图用一次后自动清除。<br><br>改票据、文档里的文字时，先框选再打开「📄 文档模式」，框外内容一个像素都不会动。</div>
     </div>
     <div class="chips">
       <button class="chip" onclick="useChip(this)">把天空变蓝</button>
@@ -263,7 +264,8 @@ function resetAll(){
   $('workspace').classList.remove('show');
   $('hero').style.display='';
   $('navNew').style.display='none';
-  $('chatBody').innerHTML='<div class="msg ai">你好！我是你的 AI 修图师。<br>直接告诉我怎么改，例如：「把天空变成湛蓝色」「去掉右边的人」「在桌上加一杯咖啡」。</div>';
+  $('chatBody').innerHTML='<div class="msg ai">你好！我是你的 AI 修图师。<br>直接告诉我怎么改，例如：「把天空变成湛蓝色」「去掉右边的人」「在桌上加一杯咖啡」。</div>'
+    +'<div class="msg ai">📌 两个进阶用法：<br><br><b>▣ 框选区域</b>：点上方「框选区域」，在图上拖出一个框，再描述需求（如「框里加一只猫」「把框内的人去掉」），就只会改框选的位置。<br><br><b>📎 参考图</b>：点右上的「参考图」上传一张照片，AI 会把里面的人/物体尽量原样加进当前图片；不上传则由 AI 自由发挥。参考图用一次后自动清除。<br><br>改票据、文档里的文字时，先框选再打开「📄 文档模式」，框外内容一个像素都不会动。</div>';
   updateRefBar();updateToolbar();clearRect();
 }
 
