@@ -125,6 +125,10 @@ button{font-family:inherit;cursor:pointer;border:none}
   font-size:13px;outline:none;font-family:inherit}
 .rg-row input:focus{border-color:var(--accent)}
 .rg-x{color:var(--warn);background:none;font-size:13px}
+.rg-ref{cursor:pointer;font-size:15px;line-height:1}
+.rg-ref img{width:26px;height:26px;object-fit:cover;border-radius:6px;display:block;
+  border:1px solid #c7cbe8}
+.rg-refx{color:var(--warn);font-size:12px;cursor:pointer;margin-left:-4px}
 .chat-input{display:flex;gap:10px;padding:14px 18px;border-top:1px solid var(--line)}
 .chat-input textarea{flex:1;resize:none;height:52px;padding:10px 12px;border-radius:12px;
   border:1px solid var(--line);font-family:inherit;font-size:14px;outline:none;transition:.15s}
@@ -207,7 +211,7 @@ button{font-family:inherit;cursor:pointer;border:none}
     </div>
     <div class="chat-body" id="chatBody">
       <div class="msg ai">你好！我是你的 AI 修图师。<br>直接告诉我怎么改，例如：「把天空变成湛蓝色」「去掉右边的人」「在桌上加一杯咖啡」。</div>
-      <div class="msg ai">📌 两个进阶用法：<br><br><b>▣ 框选区域</b>：点上方「框选区域」，在图上拖框，可连续框多块，每块单独填写修改需求后一次性提交（如「框里加一只猫」「把框内的人去掉」），只改框选位置。<br><br><b>📎 参考图</b>：点右上的「参考图」上传照片（最多 2 张），AI 会把里面的人/物体尽量原样加进当前图片；不上传则由 AI 自由发挥。参考图用一次后自动清除。<br><br>改票据、文档里的文字时，先框选再打开「📄 文档模式」，框外内容一个像素都不会动。</div>
+      <div class="msg ai">📌 两个进阶用法：<br><br><b>▣ 框选区域</b>：点上方「框选区域」，在图上拖框，可连续框多块，每块单独填写修改需求后一次性提交（如「框里加一只猫」「把框内的人去掉」），只改框选位置；每块还能单独挂一张参考图（点那一行的 📎），精确指定这一块要加的人/物体。<br><br><b>📎 参考图</b>：点右上的「参考图」上传照片（最多 2 张），AI 会把里面的人/物体尽量原样加进当前图片；不上传则由 AI 自由发挥。参考图用一次后自动清除。<br><br>改票据、文档里的文字时，先框选再打开「📄 文档模式」，框外内容一个像素都不会动。</div>
     </div>
     <div class="chips">
       <button class="chip" onclick="useChip(this)">把天空变蓝</button>
@@ -282,7 +286,7 @@ function resetAll(){
   $('hero').style.display='';
   $('navNew').style.display='none';
   $('chatBody').innerHTML='<div class="msg ai">你好！我是你的 AI 修图师。<br>直接告诉我怎么改，例如：「把天空变成湛蓝色」「去掉右边的人」「在桌上加一杯咖啡」。</div>'
-    +'<div class="msg ai">📌 两个进阶用法：<br><br><b>▣ 框选区域</b>：点上方「框选区域」，在图上拖框，可连续框多块，每块单独填写修改需求后一次性提交（如「框里加一只猫」「把框内的人去掉」），只改框选位置。<br><br><b>📎 参考图</b>：点右上的「参考图」上传照片（最多 2 张），AI 会把里面的人/物体尽量原样加进当前图片；不上传则由 AI 自由发挥。参考图用一次后自动清除。<br><br>改票据、文档里的文字时，先框选再打开「📄 文档模式」，框外内容一个像素都不会动。</div>';
+    +'<div class="msg ai">📌 两个进阶用法：<br><br><b>▣ 框选区域</b>：点上方「框选区域」，在图上拖框，可连续框多块，每块单独填写修改需求后一次性提交（如「框里加一只猫」「把框内的人去掉」），只改框选位置；每块还能单独挂一张参考图（点那一行的 📎），精确指定这一块要加的人/物体。<br><br><b>📎 参考图</b>：点右上的「参考图」上传照片（最多 2 张），AI 会把里面的人/物体尽量原样加进当前图片；不上传则由 AI 自由发挥。参考图用一次后自动清除。<br><br>改票据、文档里的文字时，先框选再打开「📄 文档模式」，框外内容一个像素都不会动。</div>';
   updateRefBar();updateToolbar();clearRect();clearRegions();
 }
 
@@ -381,10 +385,16 @@ function renderRegionPanel(){
     +' 块区域：每块填需求，一次提交</span><button class="rg-x" onclick="clearRegions()">清空</button></div>'
     +rtRegions.map((g,i)=>'<div class="rg-row"><span class="rg-badge">区域'+(i+1)+'</span>'
       +'<input placeholder="这一块的修改需求…" value="'+esc(g.desc||'')+'" oninput="rtRegions['+i+'].desc=this.value">'
+      +'<span class="rg-ref" title="这一块专用的参考图" onclick="pickRegionRef('+i+')">'
+      +(g.ref?'<img src="'+g.ref+'">':'📎')+'</span>'
+      +(g.ref?'<span class="rg-refx" title="移除参考图" onclick="event.stopPropagation();clearRegionRef('+i+')">✕</span>':'')
       +'<button class="rg-x" onclick="delRegion('+i+')">✕</button></div>').join('');
 }
 function delRegion(i){rtRegions.splice(i,1);renderRegions()}
 function clearRegions(){rtRegions=[];renderRegions()}
+let refTarget=-1;  // >=0 表示在给某个区域挂参考图
+function pickRegionRef(i){refTarget=i;$('refInput').click()}
+function clearRegionRef(i){rtRegions[i].ref='';renderRegions()}
 window.addEventListener('resize',renderRegions);
 
 /* ---------- 参考图（最多 2 张） ---------- */
@@ -394,7 +404,13 @@ function pickRef(){
 }
 $('refInput').onchange=async e=>{
   const f=e.target.files[0];e.target.value='';if(!f)return;
-  refImages.push(await compressImage(f));
+  const data=await compressImage(f);
+  if(refTarget>=0){  // 给某个区域挂专用参考图
+    rtRegions[refTarget].ref=data;
+    toast('已给 区域'+(refTarget+1)+' 挂上参考图');
+    refTarget=-1;renderRegions();return;
+  }
+  refImages.push(data);
   updateRefBar();
   toast('参考图已附加（'+refImages.length+'/2）');
 };
@@ -440,7 +456,7 @@ async function sendMsg(){
     for(const g of rtRegions){
       const d=(g.desc||'').trim()||text;  // 区域没填描述时用输入框内容
       if(!d){toast('请给每个区域填写修改需求');return}
-      edits.push({rect:{x:g.x,y:g.y,w:g.w,h:g.h},instruction:d});
+      edits.push({rect:{x:g.x,y:g.y,w:g.w,h:g.h},instruction:d,ref_image:g.ref||''});
     }
   }
   busy=true;$('btnSend').disabled=true;updateToolbar();

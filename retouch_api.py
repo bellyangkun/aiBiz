@@ -347,7 +347,7 @@ def api_retouch():
     """对话式 AI 修图。只出预览，不动上传原图。
     参数：token（上传图）、instruction、base_token（上次结果继续改）、
     history、rect（框选区域）、ref_image（参考图 data URI）、doc_mode、
-    edits（批量区域修改 [{rect,instruction}]）、ref_images（多参考图列表）"""
+    edits（批量区域修改 [{rect,instruction,ref_image?}]）、ref_images（全局多参考图列表）"""
     data = request.get_json(silent=True) or {}
     up_token = os.path.basename(str(data.get("token") or "").strip())
     instruction = (data.get("instruction") or "").strip()
@@ -402,12 +402,16 @@ def api_retouch():
                 if not rv:
                     results.append(f"区域{i + 1}框选无效")
                     continue
-                if ref_images:
-                    instr = (f"前面{len(ref_images)}张图片是要添加的人/物体的参考图，"
+                e_ref = str(e.get("ref_image") or "")
+                if not e_ref.startswith("data:image"):
+                    e_ref = ""
+                refs = [e_ref] if e_ref else ref_images  # 区块自己的参考图优先于全局参考图
+                if refs:
+                    instr = (f"前面{len(refs)}张图片是要添加的人/物体的参考图，"
                              "最后一张是要修改的图。把参考图中的人/物体自然地加入图中，"
                              "外形尽量贴近参考图，大小、透视和光影与底图协调。"
                              "具体要求：" + instr)
-                out2, err = _ty_doc_edit(out, rv, instr, ref_images)
+                out2, err = _ty_doc_edit(out, rv, instr, refs)
                 if out2 is None:
                     results.append(f"区域{i + 1}失败：{err}")
                 else:
