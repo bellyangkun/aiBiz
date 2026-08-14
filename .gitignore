@@ -2,3 +2,4 @@ uploads/
 *.log
 __pycache__/
 .DS_Store
+.secret_key

@@ -141,6 +141,7 @@ button{font-family:inherit;cursor:pointer;border:none}
   </div>
   <div class="nav-actions">
     <button class="btn ghost" id="navNew" style="display:none" onclick="resetAll()">＋ 换一张图</button>
+    <button class="btn ghost" onclick="logout()">退出登录</button>
   </div>
 </div>
 
@@ -240,6 +241,7 @@ async function upload(file){
   const fd=new FormData();fd.append('file',file);
   try{
     const r=await fetch('/api/upload',{method:'POST',body:fd});
+    if(r.status===401){location.href='/login';return}
     const d=await r.json();
     if(!r.ok)throw new Error(d.error||'上传失败');
     curToken=d.token;curW=d.width;curH=d.height;
@@ -387,6 +389,7 @@ async function sendMsg(){
   try{
     const r=await fetch('/api/retouch',{method:'POST',
       headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    if(r.status===401){location.href='/login';return}
     const d=await r.json();
     typing.remove();
     if(!r.ok)throw new Error(d.error||'修图失败');
@@ -434,6 +437,9 @@ function dlToken(token){
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeLb()});
 
 /* ---------- toast ---------- */
+function logout(){
+  fetch('/api/logout',{method:'POST'}).finally(()=>location.href='/login');
+}
 let toastTimer=null;
 function toast(s){
   const t=$('toast');t.textContent=s;t.classList.add('show');

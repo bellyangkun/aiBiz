@@ -20,7 +20,8 @@ try:
     register_heif_opener()
 except ImportError:
     pass
-from flask import Flask, request, jsonify, send_file, send_from_directory
+from flask import Flask, request, jsonify, send_file, send_from_directory, session, redirect
+from datetime import timedelta
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", os.path.join(BASE_DIR, "uploads"))
@@ -33,6 +34,52 @@ os.makedirs(PREVIEW_DIR, exist_ok=True)
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
+
+# ---------------- 登录（只要密码） ----------------
+PASSWORD = os.environ.get("RETOUCH_PASSWORD", "8888")
+_secret_path = os.path.join(BASE_DIR, ".secret_key")
+if os.path.exists(_secret_path):
+    app.secret_key = open(_secret_path).read().strip()
+else:
+    app.secret_key = uuid.uuid4().hex + uuid.uuid4().hex
+    with open(_secret_path, "w") as _f:
+        _f.write(app.secret_key)
+    os.chmod(_secret_path, 0o600)
+app.permanent_session_lifetime = timedelta(days=30)
+
+
+@app.before_request
+def _auth():
+    if request.path.startswith("/static/") or request.path in ("/login", "/api/login"):
+        return None
+    if session.get("ok"):
+        return None
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "未登录"}), 401
+    return redirect("/login")
+
+
+@app.route("/login")
+def login_page():
+    if session.get("ok"):
+        return redirect("/")
+    return send_from_directory("static", "login.html")
+
+
+@app.route("/api/login", methods=["POST"])
+def api_login():
+    data = request.get_json(silent=True) or {}
+    if str(data.get("password") or "") == PASSWORD:
+        session["ok"] = True
+        session.permanent = True
+        return jsonify({"ok": True})
+    return jsonify({"error": "密码错误"}), 401
+
+
+@app.route("/api/logout", methods=["POST"])
+def api_logout():
+    session.clear()
+    return jsonify({"ok": True})
 
 
 def _load_cfg():

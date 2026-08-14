@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>登录 · 智修 AI 修图台</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  min-height:100vh;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,#1e1b4b 0%,#312e81 45%,#4c1d95 100%);overflow:hidden}
+.glow{position:fixed;border-radius:50%;filter:blur(90px);opacity:.45;pointer-events:none}
+.g1{width:420px;height:420px;background:#6366f1;top:-120px;left:-100px}
+.g2{width:380px;height:380px;background:#a855f7;bottom:-140px;right:-80px}
+.card{position:relative;width:380px;max-width:92vw;padding:44px 40px 38px;border-radius:24px;
+  background:rgba(255,255,255,.97);box-shadow:0 30px 80px rgba(0,0,0,.4);text-align:center}
+.logo{width:64px;height:64px;margin:0 auto 18px;border-radius:18px;display:flex;align-items:center;
+  justify-content:center;font-size:32px;color:#fff;
+  background:linear-gradient(135deg,#6366f1,#8b5cf6);box-shadow:0 10px 26px rgba(99,102,241,.45)}
+h1{font-size:22px;font-weight:800;color:#1e2235}
+.sub{margin:8px 0 28px;font-size:13px;color:#8a8fa8}
+.field{position:relative;margin-bottom:14px}
+.field input{width:100%;padding:14px 16px 14px 44px;font-size:15px;border-radius:12px;outline:none;
+  border:1.5px solid #e2e4f0;background:#f8f9fd;transition:.15s;color:#1e2235}
+.field input:focus{border-color:#6366f1;background:#fff;box-shadow:0 0 0 4px rgba(99,102,241,.14)}
+.field .ic{position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:17px;opacity:.55}
+.err{display:none;margin:0 0 12px;font-size:13px;color:#dc2626}
+.err.show{display:block;animation:shake .35s}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+.btn{width:100%;padding:14px;border:none;border-radius:12px;font-size:15px;font-weight:700;color:#fff;
+  background:linear-gradient(135deg,#6366f1,#8b5cf6);cursor:pointer;transition:.15s;
+  box-shadow:0 8px 20px rgba(99,102,241,.35)}
+.btn:hover{transform:translateY(-1px);box-shadow:0 10px 26px rgba(99,102,241,.45)}
+.btn:disabled{opacity:.6;transform:none}
+.foot{margin-top:22px;font-size:12px;color:#a0a4bd}
+</style>
+</head>
+<body>
+<div class="glow g1"></div><div class="glow g2"></div>
+<div class="card">
+  <div class="logo">✨</div>
+  <h1>智修 · AI 修图台</h1>
+  <p class="sub">对话式 AI 修图，请输入访问密码</p>
+  <div class="field">
+    <span class="ic">🔒</span>
+    <input type="password" id="pwd" placeholder="访问密码" autocomplete="current-password" autofocus>
+  </div>
+  <p class="err" id="err">密码错误，请重试</p>
+  <button class="btn" id="btn" onclick="login()">进入</button>
+  <p class="foot">智修 AI 修图台 · 内部使用</p>
+</div>
+<script>
+const pwd=document.getElementById('pwd'),btn=document.getElementById('btn'),err=document.getElementById('err');
+pwd.addEventListener('keydown',e=>{if(e.key==='Enter')login()});
+async function login(){
+  if(!pwd.value)return;
+  btn.disabled=true;btn.textContent='验证中…';err.classList.remove('show');
+  try{
+    const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({password:pwd.value})});
+    if(r.ok){location.href='/';return}
+    err.classList.add('show');pwd.select();
+  }catch(e){err.textContent='网络错误，请重试';err.classList.add('show')}
+  btn.disabled=false;btn.textContent='进入';
+}
+</script>
+</body>
+</html>
