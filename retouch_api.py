@@ -226,6 +226,8 @@ def _ty_image_edit(img, edit, ref_image=""):
     if not key:
         return None, "未配置通义 API Key（~/image_analyzer_config.json 的 ty_api_key）"
     model = cfg.get("ty_model", "qwen-image-edit-plus")  # 可换 wan2.7-image-pro 等
+    # 端点：默认按量付费；Token Plan 套餐配 https://token-plan.cn-beijing.maas.aliyuncs.com
+    api_base = (cfg.get("ty_api_base") or "https://dashscope.aliyuncs.com").rstrip("/")
     buf = io.BytesIO()
     pic = img.convert("RGB").copy()
     pic.thumbnail((2048, 2048))  # 官方建议宽高均在 384~3072 之间
@@ -242,7 +244,7 @@ def _ty_image_edit(img, edit, ref_image=""):
     content += [{"image": b64}, {"text": edit}]
     import requests as _req
     try:
-        r = _req.post("https://dashscope.aliyuncs.com/api/v1/services/aigc/"
+        r = _req.post(api_base + "/api/v1/services/aigc/"
                       "multimodal-generation/generation",
                       json={"model": model,
                             "input": {"messages": [{"role": "user", "content": content}]},
