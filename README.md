@@ -30,9 +30,13 @@ PORT=8090 python3 retouch_api.py
   "api_key": "sk-cp-...",            // MiniMax（意图理解 + image-01 回退）
   "api_base": "https://api.minimaxi.com/v1",
   "model": "MiniMax-M3",
-  "ty_api_key": "sk-..."             // 通义 DashScope（图像编辑，主力）
+  "ty_api_key": "sk-...",             // 通义 DashScope（图像编辑，主力）
+  "ty_engine": "wanx"                 // 图像编辑引擎：wanx=万相（默认 qwen=qwen-image-edit-plus）
 }
 ```
+
+说明：万相（`wanx2.1-imageedit`）走异步任务，区域修改用 mask 局部重绘、整图修改用
+description_edit；**带参考图的多图编辑和文档模式（框外像素零改动）会自动回退 qwen**。
 
 ## 接口
 

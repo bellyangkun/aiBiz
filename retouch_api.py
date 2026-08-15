@@ -259,8 +259,75 @@ def _ty_image_edit(img, edit, ref_image=""):
         return None, f"通义编辑异常: {e}"
 
 
-def _ty_doc_edit(img, rect_vals, instruction, ref_images=None):
-    """区域编辑：框选区域裁出 → 通义编辑 → 原样贴回（边缘羽化），区域外像素完全不变。
+def _wx_image_edit(img, edit, mask=None):
+    """万相 wanx2.1-imageedit（异步任务）：base64 传图 + 编辑指令。
+    mask 为 L 模式 PIL 图（白色=要重绘的区域），对应 description_edit_with_mask。
+    注意：输入宽高需在 [512,1440]，自动缩放。成功返回 (PIL图, None)，失败 (None, 错误)。"""
+    cfg = _load_cfg()
+    key = cfg.get("ty_api_key", "")
+    if not key:
+        return None, "未配置通义 API Key（~/image_analyzer_config.json 的 ty_api_key）"
+    pic = img.convert("RGB").copy()
+    w, h = pic.size
+    s = 1.0
+    if min(w, h) < 512:
+        s = 512 / min(w, h)
+    if max(w, h) * s > 1440:
+        s = 1440 / max(w, h)
+    if s != 1.0:
+        pic = pic.resize((max(16, int(w * s)), max(16, int(h * s))), Image.LANCZOS)
+
+    def _b64(im):
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=90)
+        return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+
+    inp = {"function": "description_edit_with_mask" if mask else "description_edit",
+           "prompt": edit, "base_image_url": _b64(pic)}
+    if mask:
+        inp["mask_image_url"] = _b64(mask.convert("L").resize(pic.size))
+    import requests as _req
+    import time as _t
+    H = {"Authorization": "Bearer " + key, "X-DashScope-Async": "enable"}
+    base = "https://dashscope.aliyuncs.com/api/v1"
+    try:
+        r = _req.post(base + "/services/aigc/image2image/image-synthesis",
+                      headers=H, json={"model": "wanx2.1-imageedit", "input": inp,
+                                       "parameters": {"n": 1}}, timeout=90)
+        if r.status_code != 200:
+            return None, f"万相任务创建失败 {r.status_code}: {r.text[:200]}"
+        tid = r.json()["output"]["task_id"]
+        for _ in range(45):  # 最长约 2 分半
+            _t.sleep(3)
+            t = _req.get(f"{base}/tasks/{tid}",
+                         headers={"Authorization": "Bearer " + key}, timeout=30).json()
+            st = t["output"]["task_status"]
+            if st == "SUCCEEDED":
+                url = t["output"]["results"][0]["url"]
+                ir = _req.get(url, timeout=120)
+                if ir.status_code != 200:
+                    return None, "万相结果图下载失败"
+                out_img = Image.open(io.BytesIO(ir.content)).convert("RGB")
+                # 万相输出尺寸会被内部取整（如 600→592），缩回原图尺寸
+                if out_img.size != (w, h):
+                    out_img = out_img.resize((w, h), Image.LANCZOS)
+                return out_img, None
+            if st in ("FAILED", "CANCELED"):
+                return None, "万相任务失败: " + str(t["output"].get("message", ""))[:200]
+        return None, "万相任务超时"
+    except Exception as e:
+        return None, f"万相调用异常: {e}"
+
+
+def _use_wanx(ref_images=None):
+    """当前请求是否走万相引擎：配置 ty_engine=wanx 且无参考图（万相不支持多图）"""
+    return _load_cfg().get("ty_engine", "qwen") == "wanx" and not ref_images
+
+
+def _ty_doc_edit(img, rect_vals, instruction, ref_images=None, doc_precise=False):
+    """区域编辑。两条路径：
+    - 万相（ty_engine=wanx 且无参考图且非文档模式）：整图 + mask 局部重绘，一次返回；
+    - qwen（默认/带参考图/文档模式）：框选区域裁出 → 编辑 → 原样贴回（边缘羽化），区域外像素完全不变。
     ref_images 可选：要加入的人/物体参考图（最多 2 张）。"""
     from PIL import ImageDraw, ImageFilter
     rx, ry, rw, rh = rect_vals
@@ -270,6 +337,12 @@ def _ty_doc_edit(img, rect_vals, instruction, ref_images=None):
     cw, ch = x1 - x0, y1 - y0
     if cw < 8 or ch < 8:
         return None, "框选区域太小，请框大一点"
+    if _use_wanx(ref_images) and not doc_precise:
+        # 万相 mask 局部重绘：白色区域按描述重绘，其余区域模型自行保持
+        mask = Image.new("L", (W, H), 0)
+        ImageDraw.Draw(mask).rectangle([x0, y0, x1 - 1, y1 - 1], fill=255)
+        return _wx_image_edit(img, instruction + "。只改动标记区域的内容，其余部分保持原样。",
+                              mask)
     crop = img.crop((x0, y0, x1, y1))
     scale = min(max(1.0, 512 / min(cw, ch)), 2048 / max(cw, ch))
     if scale > 1.0:
@@ -458,7 +531,10 @@ def api_retouch():
                     plan = _ai_retouch_plan(out, g_instr, history)
                     if plan and (plan.get("edit") or "").strip():
                         gedit = plan["edit"].strip()
-                gout, gerr = _ty_image_edit(out, gedit, ref_images)
+                if _use_wanx(ref_images):
+                    gout, gerr = _wx_image_edit(out, gedit)
+                else:
+                    gout, gerr = _ty_image_edit(out, gedit, ref_images)
                 if gout is None:
                     results.append(f"总体画面修改失败：{gerr}")
                 else:
@@ -490,7 +566,7 @@ def api_retouch():
             if not rect_vals:
                 return jsonify({"error": "文档模式请先在图片上框选要修改的区域"}), 400
             out, err = _ty_doc_edit(img, rect_vals, instruction
-                                    + "。其余文字、排版和格式保持不变")
+                                    + "。其余文字、排版和格式保持不变", doc_precise=True)
             if out is None:
                 return jsonify({"error": err}), 502
             out.save(os.path.join(PREVIEW_DIR, token + ".png"), "PNG")
@@ -500,7 +576,10 @@ def api_retouch():
             edit = ("第一张图片是要添加的人/物体的参考图，第二张图片是底图。"
                     "请把参考图中的人/物体自然地加入底图，外形尽量贴近参考图，"
                     "大小、透视和光影与底图协调，底图其余内容保持原样。具体要求：" + instruction)
-        out, err = _ty_image_edit(img, edit, ref_image)
+        if _use_wanx([ref_image] if ref_image else None):
+            out, err = _wx_image_edit(img, edit)
+        else:
+            out, err = _ty_image_edit(img, edit, ref_image)
         if out is None:
             return jsonify({"error": err}), 502
         out.save(os.path.join(PREVIEW_DIR, token + ".jpg"), "JPEG", quality=95)
