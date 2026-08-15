@@ -255,7 +255,7 @@ def _ty_image_edit(img, edit, ref_image=""):
                                 "input": {"messages": [{"role": "user", "content": content}]},
                                 "parameters": {"n": 1, "watermark": False,
                                                "prompt_extend": True}},
-                          headers={"Authorization": "Bearer " + k}, timeout=300)
+                          headers={"Authorization": "Bearer " + k}, timeout=240)
             if r.status_code != 200:
                 return None, f"通义编辑失败 {r.status_code}: {r.text[:200]}"
             c = r.json()["output"]["choices"][0]["message"]["content"]

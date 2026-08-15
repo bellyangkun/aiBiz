@@ -571,7 +571,11 @@ async function sendMsg(){
     const r=await fetch('/api/retouch',{method:'POST',
       headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     if(r.status===401){location.href='/login';return}
-    const d=await r.json();
+    const raw=await r.text();
+    let d;
+    try{d=JSON.parse(raw)}catch(_){
+      throw new Error('服务返回异常（HTTP '+r.status+'），可能是生成超时，请稍后重试');
+    }
     typing.remove();
     if(!r.ok)throw new Error(d.error||'修图失败');
     rtStack.push({token:d.token,text:showText.slice(0,120)});rtFwd=[];  // 新修改使重做分支失效
