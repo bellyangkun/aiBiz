@@ -436,7 +436,7 @@ function renderRegionPanel(){
 }
 function delRegion(i){rtRegions.splice(i,1);renderRegions()}
 function clearRegions(){rtRegions=[];renderRegions()}
-let mergeMode=false;
+let mergeMode=true;  // 默认合并一次改（省额度），需要逐块精准时手动关
 function toggleMerge(){
   mergeMode=!mergeMode;renderRegionPanel();
   toast(mergeMode?'合并模式：所有区域一次编辑出图（省额度）':'逐块模式：每块单独编辑（更精准）');
