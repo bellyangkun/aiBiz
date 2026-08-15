@@ -247,11 +247,11 @@ def _ty_image_edit(img, edit, ref_image=""):
     content += [{"image": b64}, {"text": edit}]
     import requests as _req
 
-    def _call(k, base):
+    def _call(k, base, mdl):
         try:
             r = _req.post(base + "/api/v1/services/aigc/"
                           "multimodal-generation/generation",
-                          json={"model": model,
+                          json={"model": mdl,
                                 "input": {"messages": [{"role": "user", "content": content}]},
                                 "parameters": {"n": 1, "watermark": False,
                                                "prompt_extend": True}},
@@ -269,15 +269,18 @@ def _ty_image_edit(img, edit, ref_image=""):
         except Exception as e:
             return None, f"通义编辑异常: {e}"
 
-    out, err = _call(key, api_base)
+    out, err = _call(key, api_base, model)
     if out is not None:
         return out, None
-    # 主通道失败（如 Token Plan 额度用尽）：备用通道兜底重试一次
+    # 主通道失败（如 Token Plan 额度用尽）：备用通道兜底重试一次。
+    # 备用模型可单独配（ty_model_backup，默认 qwen-image-edit-plus）：
+    # 按量端点上 qwen-image-3.0-pro 极慢（200s+），edit-plus 快一个量级且支持多参考图。
     bkey = cfg.get("ty_api_key_backup", "")
     bbase = (cfg.get("ty_api_base_backup") or "https://dashscope.aliyuncs.com").rstrip("/")
     if bkey and (bkey != key or bbase != api_base):
-        print(f"主编辑通道失败（{err[:80]}），尝试备用通道", flush=True)
-        out2, err2 = _call(bkey, bbase)
+        bmodel = cfg.get("ty_model_backup", "qwen-image-edit-plus")
+        print(f"主编辑通道失败（{err[:80]}），尝试备用通道（{bmodel}）", flush=True)
+        out2, err2 = _call(bkey, bbase, bmodel)
         if out2 is not None:
             return out2, None
         err = f"{err}；备用通道也失败: {err2}"
