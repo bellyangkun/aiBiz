@@ -211,7 +211,7 @@ button{font-family:inherit;cursor:pointer;border:none}
     </div>
     <div class="chat-body" id="chatBody">
       <div class="msg ai">你好！我是你的 AI 修图师。<br>直接告诉我怎么改，例如：「把天空变成湛蓝色」「去掉右边的人」「在桌上加一杯咖啡」。</div>
-      <div class="msg ai">📌 两个进阶用法：<br><br><b>▣ 框选区域</b>：点上方「框选区域」，在图上拖框，可连续框多块，每块单独填写修改需求后一次性提交（如「框里加一只猫」「把框内的人去掉」），框只是大致位置：添加的人/物体大小由 AI 按画面比例决定，可以超出框的范围；每块还能单独挂一张参考图（点那一行的 📎），精确指定这一块要加的人/物体。<br><br><b>📎 参考图</b>：点右上的「参考图」上传照片（最多 2 张），AI 会把里面的人/物体尽量原样加进当前图片；不上传则由 AI 自由发挥。参考图用一次后自动清除。<br><br>改票据、文档里的文字时，先框选再打开「📄 文档模式」，框外内容一个像素都不会动。</div>
+      <div class="msg ai">📌 两个进阶用法：<br><br><b>▣ 框选区域</b>：点上方「框选区域」，在图上拖框，可连续框多块，每块单独填写修改需求后一次性提交（如「框里加一只猫」「把框内的人去掉」），框选后 AI 会自动识别框里的内容填进输入框，你只需补充要改成什么；框只是大致位置：添加的人/物体大小由 AI 按画面比例决定，可以超出框的范围；每块还能单独挂一张参考图（点那一行的 📎），精确指定这一块要加的人/物体。<br><br><b>📎 参考图</b>：点右上的「参考图」上传照片（最多 2 张），AI 会把里面的人/物体尽量原样加进当前图片；不上传则由 AI 自由发挥。参考图用一次后自动清除。<br><br>改票据、文档里的文字时，先框选再打开「📄 文档模式」，框外内容一个像素都不会动。</div>
     </div>
     <div class="chips">
       <button class="chip" onclick="useChip(this)">把天空变蓝</button>
@@ -286,7 +286,7 @@ function resetAll(){
   $('hero').style.display='';
   $('navNew').style.display='none';
   $('chatBody').innerHTML='<div class="msg ai">你好！我是你的 AI 修图师。<br>直接告诉我怎么改，例如：「把天空变成湛蓝色」「去掉右边的人」「在桌上加一杯咖啡」。</div>'
-    +'<div class="msg ai">📌 两个进阶用法：<br><br><b>▣ 框选区域</b>：点上方「框选区域」，在图上拖框，可连续框多块，每块单独填写修改需求后一次性提交（如「框里加一只猫」「把框内的人去掉」），框只是大致位置：添加的人/物体大小由 AI 按画面比例决定，可以超出框的范围；每块还能单独挂一张参考图（点那一行的 📎），精确指定这一块要加的人/物体。<br><br><b>📎 参考图</b>：点右上的「参考图」上传照片（最多 2 张），AI 会把里面的人/物体尽量原样加进当前图片；不上传则由 AI 自由发挥。参考图用一次后自动清除。<br><br>改票据、文档里的文字时，先框选再打开「📄 文档模式」，框外内容一个像素都不会动。</div>';
+    +'<div class="msg ai">📌 两个进阶用法：<br><br><b>▣ 框选区域</b>：点上方「框选区域」，在图上拖框，可连续框多块，每块单独填写修改需求后一次性提交（如「框里加一只猫」「把框内的人去掉」），框选后 AI 会自动识别框里的内容填进输入框，你只需补充要改成什么；框只是大致位置：添加的人/物体大小由 AI 按画面比例决定，可以超出框的范围；每块还能单独挂一张参考图（点那一行的 📎），精确指定这一块要加的人/物体。<br><br><b>📎 参考图</b>：点右上的「参考图」上传照片（最多 2 张），AI 会把里面的人/物体尽量原样加进当前图片；不上传则由 AI 自由发挥。参考图用一次后自动清除。<br><br>改票据、文档里的文字时，先框选再打开「📄 文档模式」，框外内容一个像素都不会动。</div>';
   updateRefBar();updateToolbar();clearRect();clearRegions();
 }
 
@@ -350,9 +350,11 @@ function toggleDoc(){
     const w=parseFloat(box.style.width),h=parseFloat(box.style.height);
     box.style.display='none';
     if(w>8&&h>8){
-      rtRegions.push({x:x/r.width,y:y/r.height,w:w/r.width,h:h/r.height,desc:''});
-      toast('已添加 区域'+rtRegions.length+'，在下方填写这一块的修改需求');
+      const g={x:x/r.width,y:y/r.height,w:w/r.width,h:h/r.height,desc:'',analyzing:true};
+      rtRegions.push(g);
+      toast('已添加 区域'+rtRegions.length+'，AI 正在识别这一块的内容…');
       renderRegions();
+      analyzeRegion(g);
     }
     // 保持框选模式，方便继续框下一块；再点一次「框选区域」退出
   });
@@ -387,7 +389,8 @@ function renderRegionPanel(){
   p.innerHTML='<div class="rg-hd"><span>🎯 批量修改 '+rtRegions.length
     +' 块区域：每块填需求，一次提交</span><button class="rg-x" onclick="clearRegions()">清空</button></div>'
     +rtRegions.map((g,i)=>'<div class="rg-row"><span class="rg-badge">区域'+(i+1)+'</span>'
-      +'<input placeholder="这一块的修改需求…" value="'+esc(g.desc||'')+'" oninput="rtRegions['+i+'].desc=this.value">'
+      +'<input placeholder="'+(g.analyzing?'AI 正在识别这一块的内容…':'这一块的修改需求…')
+      +'" value="'+esc(g.desc||'')+'" oninput="rtRegions['+i+'].desc=this.value">'
       +'<span class="rg-ref" title="这一块专用的参考图" onclick="pickRegionRef('+i+')">'
       +(g.ref?'<img src="'+g.ref+'">':'📎')+'</span>'
       +(g.ref?'<span class="rg-refx" title="移除参考图" onclick="event.stopPropagation();clearRegionRef('+i+')">✕</span>':'')
@@ -395,6 +398,23 @@ function renderRegionPanel(){
 }
 function delRegion(i){rtRegions.splice(i,1);renderRegions()}
 function clearRegions(){rtRegions=[];renderRegions()}
+async function analyzeRegion(g){
+  // 框选后先理解这一块的内容，自动填入输入框，用户只需补充要改成什么
+  try{
+    const r=await fetch('/api/describe_region',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({token:curToken,base_token:currentToken(),
+        rect:{x:g.x,y:g.y,w:g.w,h:g.h}})});
+    if(r.status===401){location.href='/login';return}
+    const d=await r.json();
+    if(r.ok&&d.desc&&rtRegions.includes(g)){
+      g.desc='框里现在是：'+d.desc+'。把它改成：';
+      toast('已识别 区域'+(rtRegions.indexOf(g)+1)+' 的内容，请补充要改成什么');
+    }
+  }catch(_){}
+  g.analyzing=false;
+  renderRegionPanel();
+}
 let refTarget=-1;  // >=0 表示在给某个区域挂参考图
 function pickRegionRef(i){refTarget=i;$('refInput').click()}
 function clearRegionRef(i){rtRegions[i].ref='';renderRegions()}

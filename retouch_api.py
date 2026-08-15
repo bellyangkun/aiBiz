@@ -498,6 +498,41 @@ def api_retouch():
     return jsonify({"token": token, "reply": reply or "改好了，看看效果"})
 
 
+@app.route("/api/describe_region", methods=["POST"])
+def api_describe_region():
+    """理解框选区域内容：裁剪（带少量上下文）→ MiniMax 一句话描述，供填入该块的输入框"""
+    data = request.get_json(silent=True) or {}
+    rv = _parse_rect(data.get("rect") or {})
+    if not rv:
+        return jsonify({"error": "框选无效"}), 400
+    img = None
+    base_token = os.path.basename(str(data.get("base_token") or "").strip())
+    if base_token:
+        for ext in (".jpg", ".png"):
+            bp = os.path.join(PREVIEW_DIR, base_token + ext)
+            if os.path.exists(bp):
+                img = Image.open(bp).convert("RGB")
+                break
+    if img is None:
+        p = _upload_path(os.path.basename(str(data.get("token") or "").strip()))
+        if not p:
+            return jsonify({"error": "图片不存在"}), 404
+        img = Image.open(p).convert("RGB")
+    rx, ry, rw, rh = rv
+    W, H = img.size
+    mx, my = rw * 0.1, rh * 0.1  # 带一点上下文，描述更准
+    box = (max(0, int((rx - mx) * W)), max(0, int((ry - my) * H)),
+           min(W, int((rx + rw + mx) * W + 0.5)), min(H, int((ry + rh + my) * H + 0.5)))
+    crop = img.crop(box)
+    desc = _mm_vision_text(
+        "请用一两句话简要描述这张裁剪图中央区域的主要内容（主体是什么、在什么环境、什么颜色状态），"
+        "例如「一只棕色的狗坐在草地上」。只输出描述本身，不要输出其他内容。",
+        crop, max_tokens=100)
+    if not desc:
+        return jsonify({"error": "AI 理解失败"}), 502
+    return jsonify({"desc": desc.strip()})
+
+
 @app.route("/")
 def index():
     return send_from_directory("static", "index.html")
