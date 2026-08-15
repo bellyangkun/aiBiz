@@ -86,6 +86,43 @@ def _load_cfg():
     return json.load(open(CONFIG_PATH)) if os.path.exists(CONFIG_PATH) else {}
 
 
+# ---------------- API Key 设置页 ----------------
+# 可在页面上覆盖的 key（GET 只返回是否已配置，不回显明文）
+_EDITABLE_KEYS = {
+    "api_key": "MiniMax API Key（意图理解 / MiniMax 重绘）",
+    "ty_api_key": "通义 Token Plan Key（sk-sp- 开头，图像编辑主通道）",
+    "ty_api_key_backup": "通义按量 Key（sk-ws- 开头，备用通道）",
+    "kimi_api_key": "Kimi API Key",
+    "amap_key": "高德地图 Key",
+}
+
+
+@app.route("/api/config/keys")
+def api_config_keys_get():
+    cfg = _load_cfg()
+    return jsonify({"ok": True, "keys": [
+        {"name": k, "label": label, "configured": bool(str(cfg.get(k) or "").strip())}
+        for k, label in _EDITABLE_KEYS.items()
+    ]})
+
+
+@app.route("/api/config/keys", methods=["POST"])
+def api_config_keys_set():
+    """只接受白名单内的 key，空值忽略；其余配置项原样保留"""
+    data = request.get_json(silent=True) or {}
+    updates = {k: str(v).strip() for k, v in data.items()
+               if k in _EDITABLE_KEYS and str(v or "").strip()}
+    if not updates:
+        return jsonify({"error": "没有需要更新的 key（留空表示不修改）"}), 400
+    cfg = _load_cfg()
+    cfg.update(updates)
+    tmp = CONFIG_PATH + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, CONFIG_PATH)
+    return jsonify({"ok": True, "updated": sorted(updates)})
+
+
 @app.after_request
 def no_cache_html(resp):
     if resp.mimetype == "text/html" or "javascript" in resp.mimetype:

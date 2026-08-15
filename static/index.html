@@ -167,6 +167,7 @@ button{font-family:inherit;cursor:pointer;border:none}
   </div>
   <div class="nav-actions">
     <button class="btn ghost" id="navNew" style="display:none" onclick="resetAll()">＋ 换一张图</button>
+    <button class="btn ghost" onclick="openKeySettings()">⚙️ API Key</button>
     <button class="btn ghost" onclick="logout()">退出登录</button>
   </div>
 </div>
@@ -670,6 +671,58 @@ let toastTimer=null;
 function toast(s){
   const t=$('toast');t.textContent=s;t.classList.add('show');
   clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2400);
+}
+</script>
+
+<!-- API Key 设置弹窗 -->
+<div id="keyMask" onclick="if(event.target===this)closeKeySettings()"
+     style="display:none;position:fixed;inset:0;z-index:200;background:rgba(30,34,53,.45);align-items:center;justify-content:center;padding:16px">
+  <div style="background:var(--card);border-radius:16px;padding:24px;width:min(520px,94vw);max-height:88vh;overflow:auto;box-shadow:0 20px 60px rgba(30,34,53,.25)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <div style="font-size:17px;font-weight:800">⚙️ API Key 设置</div>
+      <button class="btn ghost sm" onclick="closeKeySettings()">✕</button>
+    </div>
+    <p style="font-size:12.5px;color:var(--sub);line-height:1.6;margin-bottom:14px">
+      已配置的 key 不会回显。只填写需要更换的项，留空保持不变；保存后立即生效，无需重启。
+    </p>
+    <div id="keyFields" style="display:flex;flex-direction:column;gap:12px">加载中…</div>
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:18px">
+      <button class="btn ghost" onclick="closeKeySettings()">取消</button>
+      <button class="btn primary" id="keySaveBtn" onclick="saveKeySettings()">保存</button>
+    </div>
+  </div>
+</div>
+<script>
+async function openKeySettings(){
+  $('keyMask').style.display='flex';
+  const box=$('keyFields');box.innerHTML='加载中…';
+  try{
+    const r=await fetch('/api/config/keys');const d=await r.json();
+    if(!d.ok)throw new Error(d.error||'加载失败');
+    box.innerHTML=d.keys.map(k=>`
+      <label style="display:block">
+        <div style="font-size:13px;font-weight:600;margin-bottom:4px">${k.label}
+          <span style="font-size:11px;font-weight:500;color:${k.configured?'var(--ok)':'var(--warn)'}">${k.configured?'● 已配置':'○ 未配置'}</span>
+        </div>
+        <input type="password" data-key="${k.name}" autocomplete="new-password"
+          placeholder="${k.configured?'输入新 key 覆盖（留空不变）':'请输入 key'}"
+          style="width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:9px;font-size:13px;outline:none">
+      </label>`).join('');
+  }catch(e){box.innerHTML='加载失败：'+e.message}
+}
+function closeKeySettings(){$('keyMask').style.display='none'}
+async function saveKeySettings(){
+  const payload={};
+  document.querySelectorAll('#keyFields input[data-key]').forEach(i=>{if(i.value.trim())payload[i.dataset.key]=i.value.trim()});
+  if(!Object.keys(payload).length){toast('没有填写任何新 key');return}
+  const btn=$('keySaveBtn');btn.disabled=true;
+  try{
+    const r=await fetch('/api/config/keys',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const d=await r.json();
+    if(!r.ok||!d.ok)throw new Error(d.error||'保存失败');
+    toast('已更新 '+d.updated.length+' 个 key，立即生效');closeKeySettings();
+  }catch(e){toast('保存失败：'+e.message)}
+  finally{btn.disabled=false}
 }
 </script>
 </body>
