@@ -72,10 +72,10 @@ button{font-family:inherit;cursor:pointer;border:none}
 .canvas-wrap{padding:18px;display:flex;justify-content:center;
   background:repeating-conic-gradient(#f2f3f9 0 25%,#fafbff 0 50%) 0 0/22px 22px;
   border-radius:0 0 18px 18px;min-height:300px}
-.img-stage{position:relative;display:inline-block;max-width:100%;user-select:none}
+.img-stage{position:relative;display:inline-block;max-width:100%;user-select:none;-webkit-user-select:none}
 .img-stage img{display:block;max-width:100%;max-height:72vh;border-radius:10px;
-  box-shadow:0 8px 30px rgba(0,0,0,.14)}
-.img-stage.selecting{cursor:crosshair}
+  box-shadow:0 8px 30px rgba(0,0,0,.14);-webkit-touch-callout:none}
+.img-stage.selecting{cursor:crosshair;touch-action:none}
 .rect-box{position:absolute;border:2px solid var(--accent);background:rgba(99,102,241,.14);
   border-radius:4px;pointer-events:none;display:none}
 .rect-tag{position:absolute;top:-26px;left:0;background:var(--accent);color:#fff;font-size:11px;
@@ -196,7 +196,7 @@ button{font-family:inherit;cursor:pointer;border:none}
     </div>
     <div class="canvas-wrap">
       <div class="img-stage" id="stage">
-        <img id="mainImg" alt="底图">
+        <img id="mainImg" alt="底图" draggable="false">
         <div id="rectsLayer" style="position:absolute;inset:0;pointer-events:none"></div>
         <div class="rect-box" id="rectBox"><span class="rect-tag" id="rectTag">修改区域</span></div>
       </div>
@@ -325,22 +325,24 @@ function toggleDoc(){
   if(docMode&&!rtRegions.length){rectMode=true;$('stage').classList.add('selecting');updateToolbar();toast('请先框选要修改的区域');}
 }
 (function(){
+  // Pointer Events：同时支持鼠标、触屏、手写笔
   const st=$('stage');let sx,sy,drawing=false;
-  st.addEventListener('mousedown',e=>{
+  st.addEventListener('pointerdown',e=>{
     if(!rectMode)return;e.preventDefault();
+    try{st.setPointerCapture(e.pointerId)}catch(_){}
     const r=$('mainImg').getBoundingClientRect();
     sx=Math.min(Math.max(e.clientX-r.left,0),r.width);
     sy=Math.min(Math.max(e.clientY-r.top,0),r.height);
     drawing=true;
   });
-  window.addEventListener('mousemove',e=>{
-    if(!drawing)return;
+  st.addEventListener('pointermove',e=>{
+    if(!drawing)return;e.preventDefault();
     const r=$('mainImg').getBoundingClientRect();
     const cx=Math.min(Math.max(e.clientX-r.left,0),r.width);
     const cy=Math.min(Math.max(e.clientY-r.top,0),r.height);
     drawRect(Math.min(sx,cx),Math.min(sy,cy),Math.abs(cx-sx),Math.abs(cy-sy));
   });
-  window.addEventListener('mouseup',e=>{
+  st.addEventListener('pointerup',e=>{
     if(!drawing)return;drawing=false;
     const r=$('mainImg').getBoundingClientRect();
     const box=$('rectBox');
@@ -349,11 +351,12 @@ function toggleDoc(){
     box.style.display='none';
     if(w>8&&h>8){
       rtRegions.push({x:x/r.width,y:y/r.height,w:w/r.width,h:h/r.height,desc:''});
-      toast('已添加 区域'+rtRegions.length+'，在右侧填写这一块的修改需求');
+      toast('已添加 区域'+rtRegions.length+'，在下方填写这一块的修改需求');
       renderRegions();
     }
     // 保持框选模式，方便继续框下一块；再点一次「框选区域」退出
   });
+  st.addEventListener('pointercancel',()=>{drawing=false;$('rectBox').style.display='none'});
 })();
 function drawRect(x,y,w,h){
   const b=$('rectBox');
