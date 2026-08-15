@@ -264,7 +264,7 @@ def _wx_image_edit(img, edit, mask=None):
     mask 为 L 模式 PIL 图（白色=要重绘的区域），对应 description_edit_with_mask。
     注意：输入宽高需在 [512,1440]，自动缩放。成功返回 (PIL图, None)，失败 (None, 错误)。"""
     cfg = _load_cfg()
-    key = cfg.get("ty_api_key", "")
+    key = cfg.get("wx_api_key") or cfg.get("ty_api_key", "")  # 万相可用独立 key，缺省用百炼 key
     if not key:
         return None, "未配置通义 API Key（~/image_analyzer_config.json 的 ty_api_key）"
     pic = img.convert("RGB").copy()
