@@ -447,10 +447,32 @@ def api_retouch():
                 else:
                     out = out2
                     done.append(i + 1)
-            if not done:
+            g_instr = instruction  # 总体画面修改：与框选修改一次性提交，最后执行
+            if not done and not g_instr:
+                return jsonify({"error": "修改失败：" + "；".join(results)}), 502
+            global_ok = False
+            if g_instr:
+                # 在区域修改结果上做整图编辑：MiniMax 理解意图 → 通义整图修改
+                gedit = g_instr
+                if api_key:
+                    plan = _ai_retouch_plan(out, g_instr, history)
+                    if plan and (plan.get("edit") or "").strip():
+                        gedit = plan["edit"].strip()
+                gout, gerr = _ty_image_edit(out, gedit, ref_images)
+                if gout is None:
+                    results.append(f"总体画面修改失败：{gerr}")
+                else:
+                    out = gout
+                    global_ok = True
+            if not done and not global_ok:
                 return jsonify({"error": "修改失败：" + "；".join(results)}), 502
             out.save(os.path.join(PREVIEW_DIR, token + ".png"), "PNG")
-            reply = f"已完成 {len(done)}/{min(len(edits), 6)} 块区域修改"
+            parts = []
+            if done:
+                parts.append(f"已完成 {len(done)}/{min(len(edits), 6)} 块区域修改")
+            if global_ok:
+                parts.append("总体画面修改完成")
+            reply = "，".join(parts)
             if results:
                 reply += "（" + "；".join(results) + "）"
             return jsonify({"token": token, "ext": "png", "reply": reply})

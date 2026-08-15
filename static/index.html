@@ -232,7 +232,7 @@ button{font-family:inherit;cursor:pointer;border:none}
     </div>
     <div class="region-panel" id="regionPanel"></div>
     <div class="chat-input">
-      <textarea id="inp" placeholder="针对整个画面的修改描述…（Enter 发送，Shift+Enter 换行）"
+      <textarea id="inp" placeholder="针对整个画面的修改描述…（与框选修改一起一次提交；Enter 发送，Shift+Enter 换行）"
         oninput="growInp()"
         onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg()}"></textarea>
       <button class="btn primary" id="btnSend" onclick="sendMsg()">发送</button>
@@ -417,7 +417,7 @@ function renderRegionPanel(){
   if(!rtRegions.length){p.classList.remove('show');p.innerHTML='';return}
   p.classList.add('show');
   p.innerHTML='<div class="rg-hd"><span>🎯 批量修改 '+rtRegions.length
-    +' 块区域：每块填需求，一次提交</span><button class="rg-x" onclick="clearRegions()">清空</button></div>'
+    +' 块区域：每块填需求，与总体描述一起一次提交</span><button class="rg-x" onclick="clearRegions()">清空</button></div>'
     +rtRegions.map((g,i)=>'<div class="rg-row"><span class="rg-badge">区域'+(i+1)+'</span>'
       +'<textarea rows="1" placeholder="'+(g.analyzing?'AI 正在识别这一块的内容…':'这一块的修改需求…（可换行）')
       +'" oninput="rtRegions['+i+'].desc=this.value;this.style.height=\'auto\';this.style.height=this.scrollHeight+\'px\'">'
@@ -507,10 +507,12 @@ async function sendMsg(){
   if(!text&&!batch)return;
   if(docMode&&!batch){toast('文档模式需要先框选区域');return}
   let edits=null;
+  // 自动填入的模板尾（用户没写内容）不算总体修改描述
+  const gtext=/(帮我：|把它改成：)\s*$/.test(text)?'':text;
   if(batch){
     edits=[];
     for(const g of rtRegions){
-      const d=(g.desc||'').trim()||text;  // 区域没填描述时用输入框内容
+      const d=(g.desc||'').trim()||gtext;  // 区域没填描述时用总体描述
       if(!d){toast('请给每个区域填写修改需求');return}
       edits.push({rect:{x:g.x,y:g.y,w:g.w,h:g.h},instruction:d,ref_image:g.ref||''});
     }
@@ -522,6 +524,7 @@ async function sendMsg(){
   if(docMode)tags+='<span class="tag">📄 文档模式</span>';
   const showText=batch
     ? '🛠 一次性修改 '+edits.length+' 块区域：'+edits.map((e,i)=>'区域'+(i+1)+'「'+e.instruction+'」').join('，')
+      +(gtext?'；总体画面：「'+gtext+'」':'')
     : text;
   addMsg('user',esc(showText)+(tags?'<div class="tags">'+tags+'</div>':''));
   $('inp').value='';$('inp').style.height='';
@@ -529,7 +532,7 @@ async function sendMsg(){
   $('chatBody').appendChild(typing);$('chatBody').scrollTop=$('chatBody').scrollHeight;
   const payload={token:curToken,base_token:currentToken(),
     history:rtStack.slice(-6).map(s=>s.text)};
-  if(batch){payload.edits=edits;payload.ref_images=refImages;}
+  if(batch){payload.edits=edits;payload.ref_images=refImages;payload.instruction=gtext;}
   else{payload.instruction=text;payload.ref_image=refImages[0]||'';payload.doc_mode=docMode;}
   clearRef();
   try{
