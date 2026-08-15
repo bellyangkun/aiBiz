@@ -175,7 +175,7 @@ def _mm_vision_text(prompt, img, max_side=1024, max_tokens=300):
                     {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + b64}},
                     {"type": "text", "text": prompt}]}],
                 "max_tokens": max_tokens},
-                headers={"Authorization": "Bearer " + api_key}, timeout=90)
+                headers={"Authorization": "Bearer " + api_key}, timeout=60)
             if r.status_code != 200:
                 print(f"MiniMax 视觉调用失败 {r.status_code}: {r.text[:120]}", flush=True)
                 continue
@@ -475,9 +475,10 @@ def _region_desc(rx, ry, rw, rh):
     return f"画面{vt}{hz}区域（约占画面宽 {int(rw * 100)}%、高 {int(rh * 100)}%）"
 
 
-# 前端可选的编辑模型白名单（空 = 用配置 ty_model / ty_model_backup）
+# 前端可选的编辑模型白名单（空 = 用配置 ty_model / ty_model_backup；
+# minimax-image-01 为 MiniMax 整图重绘，不走百炼通道）
 _EDIT_MODELS = {"qwen-image-edit-plus", "qwen-image-3.0-pro",
-                "wan2.7-image", "wan2.7-image-pro"}
+                "wan2.7-image", "wan2.7-image-pro", "minimax-image-01"}
 
 
 @app.route("/api/retouch", methods=["POST"])
@@ -528,7 +529,7 @@ def api_retouch():
 
     token = f"rt_{uuid.uuid4().hex[:12]}"
 
-    if ty_key:
+    if ty_key and req_model != "minimax-image-01":
         if edits:
             # 批量区域修改：逐块 理解画面(规划比例/位置) → 裁剪→通义编辑→羽化贴回，PNG 输出
             results, done = [], []
@@ -676,7 +677,12 @@ def api_retouch():
         out.save(os.path.join(PREVIEW_DIR, token + ".jpg"), "JPEG", quality=95)
         return jsonify({"token": token, "reply": reply or "改好了，看看效果"})
 
-    # 回退：MiniMax image-01 重绘
+    # MiniMax image-01 整图重绘（显式选择，或未配置通义 key 时的兜底）
+    # 注意：这是 subject_reference 整图重绘，不是精准编辑，不支持框选/文档模式/参考图
+    if req_model == "minimax-image-01" and (edits or data.get("doc_mode")):
+        return jsonify({"error": "MiniMax 重绘只支持整图修改，请取消框选/文档模式后重试"}), 400
+    if not api_key:
+        return jsonify({"error": "未配置 MiniMax API Key（~/image_analyzer_config.json）"}), 400
     plan = _ai_retouch_plan(img, instruction, history)
     if not plan:
         return jsonify({"error": "AI 理解失败，请换个说法再试"}), 502

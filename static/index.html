@@ -222,6 +222,7 @@ button{font-family:inherit;cursor:pointer;border:none}
           <option value="">自动（推荐）</option>
           <option value="qwen-image-3.0-pro">✨ 高质 3.0（较慢）</option>
           <option value="qwen-image-edit-plus">⚡ 快速 edit</option>
+          <option value="minimax-image-01">🎨 MiniMax 重绘（整图）</option>
         </select>
         <button class="btn sm ghost" onclick="pickRef()">📎 参考图</button>
       </span>
@@ -542,6 +543,7 @@ async function sendMsg(){
   const batch=rtRegions.length>0;
   if(!text&&!batch)return;
   if(docMode&&!batch){toast('文档模式需要先框选区域');return}
+  if($('modelSel').value==='minimax-image-01'&&(batch||docMode)){toast('MiniMax 重绘只支持整图修改，请取消框选/文档模式');return}
   let edits=null;
   // 自动填入的模板尾（用户没写内容）不算总体修改描述
   const gtext=/(帮我：|把它改成：)\s*$/.test(text)?'':text;
