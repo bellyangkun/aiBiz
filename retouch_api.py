@@ -562,8 +562,8 @@ def api_retouch():
         edit = instruction
         if api_key:  # 理解层失败不至于不能用——退回用户原话当编辑指令
             plan = _ai_retouch_plan(img, instruction
-                                    + ("（用户另外附了一张参考图，参考图中就是要添加的人/物体）"
-                                       if ref_image else ""), history)
+                                    + ("（用户另外附了参考图，参考图中就是要添加的人/物体）"
+                                       if (ref_image or ref_images) else ""), history)
             if plan:
                 reply = (plan.get("reply") or "").strip()
                 edit = (plan.get("edit") or "").strip() or instruction
@@ -580,14 +580,16 @@ def api_retouch():
             out.save(os.path.join(PREVIEW_DIR, token + ".png"), "PNG")
             return jsonify({"token": token, "ext": "png",
                             "reply": reply or "已只修改框选区域，其余内容未动"})
-        if ref_image:
-            edit = ("第一张图片是要添加的人/物体的参考图，第二张图片是底图。"
+        refs_single = ([ref_image] if ref_image else []) + ref_images  # 单图参数+列表，最多2张
+        refs_single = refs_single[:2]
+        if refs_single:
+            edit = (f"前面{len(refs_single)}张图片是要添加的人/物体的参考图，最后一张是底图。"
                     "请把参考图中的人/物体自然地加入底图，外形尽量贴近参考图，"
                     "大小、透视和光影与底图协调，底图其余内容保持原样。具体要求：" + instruction)
-        if _use_wanx([ref_image] if ref_image else None):
+        if _use_wanx(refs_single):
             out, err = _wx_image_edit(img, edit)
         else:
-            out, err = _ty_image_edit(img, edit, ref_image)
+            out, err = _ty_image_edit(img, edit, refs_single)
         if out is None:
             return jsonify({"error": err}), 502
         out.save(os.path.join(PREVIEW_DIR, token + ".jpg"), "JPEG", quality=95)

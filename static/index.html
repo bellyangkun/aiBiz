@@ -129,6 +129,9 @@ button{font-family:inherit;cursor:pointer;border:none}
   line-height:1.5;min-height:34px}
 .rg-row textarea:focus{border-color:var(--accent)}
 .rg-x{color:var(--warn);background:none;font-size:13px;margin-top:6px}
+.rg-merge{background:#eef0f8;color:#4f46e5;font-size:12px;padding:3px 10px;border-radius:99px;
+  margin-right:8px;border:1px solid var(--line)}
+.rg-merge.on{background:#4f46e5;color:#fff;border-color:#4f46e5}
 .rg-ref{cursor:pointer;font-size:15px;line-height:1;margin-top:5px}
 .rg-ref img{width:26px;height:26px;object-fit:cover;border-radius:6px;display:block;
   border:1px solid #c7cbe8}
@@ -417,7 +420,9 @@ function renderRegionPanel(){
   if(!rtRegions.length){p.classList.remove('show');p.innerHTML='';return}
   p.classList.add('show');
   p.innerHTML='<div class="rg-hd"><span>🎯 批量修改 '+rtRegions.length
-    +' 块区域：每块填需求，与总体描述一起一次提交</span><button class="rg-x" onclick="clearRegions()">清空</button></div>'
+    +' 块区域：每块填需求，与总体描述一起一次提交</span><span>'
+    +'<button class="rg-merge'+(mergeMode?' on':'')+'" title="所有区域合并成一条指令，一次编辑出图（省额度）" onclick="toggleMerge()">⚡ 合并一次改</button>'
+    +'<button class="rg-x" onclick="clearRegions()">清空</button></span></div>'
     +rtRegions.map((g,i)=>'<div class="rg-row"><span class="rg-badge">区域'+(i+1)+'</span>'
       +'<textarea rows="1" placeholder="'+(g.analyzing?'AI 正在识别这一块的内容…':'这一块的修改需求…（可换行）')
       +'" oninput="rtRegions['+i+'].desc=this.value;this.style.height=\'auto\';this.style.height=this.scrollHeight+\'px\'">'
@@ -431,6 +436,17 @@ function renderRegionPanel(){
 }
 function delRegion(i){rtRegions.splice(i,1);renderRegions()}
 function clearRegions(){rtRegions=[];renderRegions()}
+let mergeMode=false;
+function toggleMerge(){
+  mergeMode=!mergeMode;renderRegionPanel();
+  toast(mergeMode?'合并模式：所有区域一次编辑出图（省额度）':'逐块模式：每块单独编辑（更精准）');
+}
+function jsRegionDesc(g){  // 与后端 _region_desc 一致的位置描述
+  const cx=g.x+g.w/2, cy=g.y+g.h/2;
+  const hz=cx<0.33?'左侧':cx>0.67?'右侧':(cx>=0.4&&cx<=0.6?'中央':(cx<0.5?'中央偏左':'中央偏右'));
+  const vt=cy<0.33?'上部':cy>0.67?'下部':(cy>=0.4&&cy<=0.6?'中部':(cy<0.5?'中部偏上':'中部偏下'));
+  return '画面'+vt+hz+'区域（约占画面宽'+Math.round(g.w*100)+'%、高'+Math.round(g.h*100)+'%）';
+}
 async function analyzeRegion(g){
   // 框选后先理解这一块的内容，自动填入输入框，用户只需补充要改成什么
   try{
@@ -520,11 +536,16 @@ async function sendMsg(){
     }
   }
   busy=true;$('btnSend').disabled=true;updateToolbar();
+  const merged=batch&&mergeMode;
   let tags='';
-  if(batch)tags+='<span class="tag">▣ 框选 '+rtRegions.length+' 块</span>';
+  if(merged)tags+='<span class="tag">⚡ 合并一次改</span>';
+  else if(batch)tags+='<span class="tag">▣ 框选 '+rtRegions.length+' 块</span>';
   if(refImages.length)tags+='<span class="tag">📎 参考图 ×'+refImages.length+'</span>';
   if(docMode)tags+='<span class="tag">📄 文档模式</span>';
-  const showText=batch
+  const showText=merged
+    ? '⚡ 合并为一次修改：'+edits.map((e,i)=>'区域'+(i+1)+'「'+e.instruction+'」').join('，')
+      +(gtext?'；总体：「'+gtext+'」':'')
+    : batch
     ? '🛠 一次性修改 '+edits.length+' 块区域：'+edits.map((e,i)=>'区域'+(i+1)+'「'+e.instruction+'」').join('，')
       +(gtext?'；总体画面：「'+gtext+'」':'')
     : text;
@@ -534,7 +555,13 @@ async function sendMsg(){
   $('chatBody').appendChild(typing);$('chatBody').scrollTop=$('chatBody').scrollHeight;
   const payload={token:curToken,base_token:currentToken(),
     history:rtStack.slice(-6).map(s=>s.text)};
-  if(batch){payload.edits=edits;payload.ref_images=refImages;payload.instruction=gtext;}
+  if(merged){
+    // 合并模式：所有区域+总体合成一条指令，一次编辑出图
+    const parts=edits.map((e,i)=>(i+1)+'. '+jsRegionDesc(rtRegions[i])+'：'+e.instruction);
+    payload.instruction='对这张照片做以下修改：'+parts.join('；')+(gtext?'；总体：'+gtext:'');
+    payload.ref_images=refImages;
+  }
+  else if(batch){payload.edits=edits;payload.ref_images=refImages;payload.instruction=gtext;}
   else{payload.instruction=text;payload.ref_image=refImages[0]||'';payload.doc_mode=docMode;}
   clearRef();
   try{
