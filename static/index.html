@@ -69,9 +69,12 @@ button{font-family:inherit;cursor:pointer;border:none}
   padding:14px 18px;border-bottom:1px solid var(--line)}
 .panel-hd .ttl{font-size:15px;font-weight:700}
 .toolbar{display:flex;gap:8px;flex-wrap:wrap}
-.canvas-wrap{padding:18px;display:flex;justify-content:center;
+.canvas-wrap{position:relative;padding:18px;display:flex;justify-content:center;
   background:repeating-conic-gradient(#f2f3f9 0 25%,#fafbff 0 50%) 0 0/22px 22px;
   border-radius:0 0 18px 18px;min-height:300px}
+.canvas-loading{position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:5;
+  background:#1e2235;color:#fff;font-size:12.5px;padding:6px 16px;border-radius:99px;opacity:.85}
+.img-loading{font-size:13px;color:var(--sub);padding:10px 2px}
 .img-stage{position:relative;display:inline-block;max-width:100%;user-select:none;-webkit-user-select:none}
 .img-stage img{display:block;max-width:100%;max-height:72vh;border-radius:10px;
   box-shadow:0 8px 30px rgba(0,0,0,.14);-webkit-touch-callout:none}
@@ -197,6 +200,7 @@ button{font-family:inherit;cursor:pointer;border:none}
       </div>
     </div>
     <div class="canvas-wrap">
+      <div id="canvasLoading" class="canvas-loading" style="display:none">⏳ 图片加载中，请耐心等待片刻…</div>
       <div class="img-stage" id="stage">
         <img id="mainImg" alt="底图" draggable="false">
         <div id="rectsLayer" style="position:absolute;inset:0;pointer-events:none"></div>
@@ -279,7 +283,8 @@ function enterWorkspace(){
   $('hero').style.display='none';
   $('workspace').classList.add('show');
   $('navNew').style.display='';
-  $('mainImg').onload=renderRegions;
+  $('mainImg').onload=()=>{renderRegions();$('canvasLoading').style.display='none'};
+  $('mainImg').onerror=()=>{$('canvasLoading').style.display='none'};
   $('mainImg').src='/api/image/'+curToken;
   updateCanvas();
   analyzeWhole();
@@ -318,6 +323,7 @@ function resetAll(){
 function currentToken(){return rtStack.length?rtStack[rtStack.length-1].token:''}
 function updateCanvas(){
   const t=currentToken();
+  $('canvasLoading').style.display='';
   $('mainImg').src=t?('/api/preview/'+t):('/api/image/'+curToken);
   updateToolbar();
 }
@@ -537,10 +543,20 @@ async function sendMsg(){
     rtExt[d.token]=d.ext||'jpg';
     const url='/api/preview/'+d.token;
     const m=addMsg('ai',esc(d.reply||'改好了，看看效果')
-      +'<img src="'+url+'" onclick="openLb(\''+d.token+'\')">'
+      +'<div class="img-loading">⏳ 图片加载中，请耐心等待片刻…</div>'
+      +'<img src="'+url+'" style="display:none" onclick="openLb(\''+d.token+'\')">'
       +'<div class="acts"><button class="btn sm ghost" onclick="dlToken(\''+d.token+'\')">⬇ 下载</button>'
       +'<button class="btn sm ghost" onclick="openLb(\''+d.token+'\')">🔍 放大看</button></div>');
-    m.querySelector('img').onload=()=>{$('chatBody').scrollTop=$('chatBody').scrollHeight};
+    const rimg=m.querySelector('img');
+    rimg.onload=()=>{
+      rimg.style.display='';
+      const ld=m.querySelector('.img-loading');if(ld)ld.remove();
+      $('chatBody').scrollTop=$('chatBody').scrollHeight;
+    };
+    rimg.onerror=()=>{
+      const ld=m.querySelector('.img-loading');
+      if(ld)ld.textContent='⚠ 图片加载失败，请稍后重试';
+    };
     clearRect();clearRegions();
     updateCanvas();
   }catch(e){
