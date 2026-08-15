@@ -258,8 +258,10 @@ def _ty_image_edit(img, edit, ref_image=""):
         return None, f"通义编辑异常: {e}"
 
 
-def _ty_doc_edit(img, rect_vals, instruction, ref_images=None):
-    """区域编辑：框选区域裁出 → 通义编辑 → 原样贴回（边缘羽化），区域外像素完全不变。
+def _ty_doc_edit(img, rect_vals, instruction, ref_images=None, precise=False):
+    """区域编辑：框选区域向外扩一圈上下文 → 通义编辑 → 羽化贴回。
+    上下文让 AI 看到周边画面，宽羽化带消除接缝。
+    precise=True（文档模式）：羽化严格在框内，框外像素完全不变。
     ref_images 可选：要加入的人/物体参考图（最多 2 张）。"""
     from PIL import ImageDraw, ImageFilter
     rx, ry, rw, rh = rect_vals
@@ -269,20 +271,35 @@ def _ty_doc_edit(img, rect_vals, instruction, ref_images=None):
     cw, ch = x1 - x0, y1 - y0
     if cw < 8 or ch < 8:
         return None, "框选区域太小，请框大一点"
-    crop = img.crop((x0, y0, x1, y1))
-    scale = min(max(1.0, 512 / min(cw, ch)), 2048 / max(cw, ch))
+    # 向外扩一圈上下文（约 20%），AI 改图时能看到周边，边缘色调接得上
+    m = int(min(200, max(24, 0.2 * max(cw, ch))))
+    ex0, ey0 = max(0, x0 - m), max(0, y0 - m)
+    ex1, ey1 = min(W, x1 + m), min(H, y1 + m)
+    ew, eh = ex1 - ex0, ey1 - ey0
+    ix, iy = x0 - ex0, y0 - ey0  # 目标区在扩展图中的偏移
+    crop = img.crop((ex0, ey0, ex1, ey1))
+    scale = min(max(1.0, 512 / min(ew, eh)), 2048 / max(ew, eh))
     if scale > 1.0:
-        crop = crop.resize((int(cw * scale), int(ch * scale)), Image.LANCZOS)
-    edited, err = _ty_image_edit(crop, instruction + "。只改动要求的内容，其余部分保持原样。",
-                                 ref_images or "")
+        crop = crop.resize((int(ew * scale), int(eh * scale)), Image.LANCZOS)
+    hint = (f"。只需要修改图片中央区域（从左侧{int(ix / ew * 100)}%、上侧{int(iy / eh * 100)}%起，"
+            f"宽约{int(cw / ew * 100)}%、高约{int(ch / eh * 100)}%的范围），"
+            "四周最外圈画面保持不变，修改内容与周边自然衔接")
+    edited, err = _ty_image_edit(crop, instruction + hint, ref_images or "")
     if edited is None:
         return None, err
-    edited = edited.resize((cw, ch), Image.LANCZOS)
+    edited = edited.resize((ew, eh), Image.LANCZOS)
     out = img.copy()
-    mask = Image.new("L", (cw, ch), 0)
-    ImageDraw.Draw(mask).rectangle([3, 3, cw - 4, ch - 4], fill=255)
-    mask = mask.filter(ImageFilter.GaussianBlur(2))
-    out.paste(edited, (x0, y0), mask)
+    mask = Image.new("L", (ew, eh), 0)
+    if precise:
+        # 羽化严格在框内：框外像素完全不变
+        ImageDraw.Draw(mask).rectangle([ix + 3, iy + 3, ix + cw - 4, iy + ch - 4], fill=255)
+        mask = mask.filter(ImageFilter.GaussianBlur(2))
+    else:
+        # 实心部分内缩 f，羽化向四周扩散到上下文圈，接缝被过渡带吸收
+        f = min(max(12, min(cw, ch) // 6), max(4, (min(cw, ch) - 8) // 2))
+        ImageDraw.Draw(mask).rectangle([ix + f, iy + f, ix + cw - 1 - f, iy + ch - 1 - f], fill=255)
+        mask = mask.filter(ImageFilter.GaussianBlur(f))
+    out.paste(edited, (ex0, ey0), mask)
     return out, None
 
 
@@ -438,7 +455,7 @@ def api_retouch():
             if not rect_vals:
                 return jsonify({"error": "文档模式请先在图片上框选要修改的区域"}), 400
             out, err = _ty_doc_edit(img, rect_vals, instruction
-                                    + "。其余文字、排版和格式保持不变")
+                                    + "。其余文字、排版和格式保持不变", precise=True)
             if out is None:
                 return jsonify({"error": err}), 502
             out.save(os.path.join(PREVIEW_DIR, token + ".png"), "PNG")
