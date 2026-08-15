@@ -218,9 +218,12 @@ def _ai_retouch_plan(img, instruction, history):
 
 
 def _ty_image_edit(img, edit, ref_image=""):
-    """通义 qwen-image-edit-plus：base64 传图 + 编辑指令。
-    ref_image 为可选参考图：单个 data URI 或列表（最多取 2 张，通义限制总图数 ≤3）。
-    参考图在前、底图在后（输出比例以最后一张图为准）。成功返回 (PIL图, None)，失败 (None, 错误)。"""
+    """百炼图像编辑（ty_model 指定模型，默认 qwen-image-edit-plus）：base64 传图 + 编辑指令。
+    ref_image 为可选参考图：单个 data URI 或列表（最多取 2 张，限制总图数 ≤3）。
+    参考图在前、底图在后（输出比例以最后一张图为准）。
+    主通道（ty_api_key + ty_api_base，可配 Token Plan）失败时，
+    自动用备用通道（ty_api_key_backup + ty_api_base_backup，默认按量端点）重试一次。
+    成功返回 (PIL图, None)，失败返回 (None, 错误信息)。"""
     cfg = _load_cfg()
     key = cfg.get("ty_api_key", "")
     if not key:
@@ -243,26 +246,42 @@ def _ty_image_edit(img, edit, ref_image=""):
     content = [{"image": r} for r in refs[:2]]
     content += [{"image": b64}, {"text": edit}]
     import requests as _req
-    try:
-        r = _req.post(api_base + "/api/v1/services/aigc/"
-                      "multimodal-generation/generation",
-                      json={"model": model,
-                            "input": {"messages": [{"role": "user", "content": content}]},
-                            "parameters": {"n": 1, "watermark": False,
-                                           "prompt_extend": True}},
-                      headers={"Authorization": "Bearer " + key}, timeout=300)
-        if r.status_code != 200:
-            return None, f"通义编辑失败 {r.status_code}: {r.text[:200]}"
-        content = r.json()["output"]["choices"][0]["message"]["content"]
-        url = next((c.get("image") for c in content if c.get("image")), None)
-        if not url:
-            return None, "通义未返回图片"
-        ir = _req.get(url, timeout=120)  # 24 小时有效的临时 URL，需立即下载
-        if ir.status_code != 200:
-            return None, "通义结果图下载失败"
-        return Image.open(io.BytesIO(ir.content)).convert("RGB"), None
-    except Exception as e:
-        return None, f"通义编辑异常: {e}"
+
+    def _call(k, base):
+        try:
+            r = _req.post(base + "/api/v1/services/aigc/"
+                          "multimodal-generation/generation",
+                          json={"model": model,
+                                "input": {"messages": [{"role": "user", "content": content}]},
+                                "parameters": {"n": 1, "watermark": False,
+                                               "prompt_extend": True}},
+                          headers={"Authorization": "Bearer " + k}, timeout=300)
+            if r.status_code != 200:
+                return None, f"通义编辑失败 {r.status_code}: {r.text[:200]}"
+            c = r.json()["output"]["choices"][0]["message"]["content"]
+            url = next((x.get("image") for x in c if x.get("image")), None)
+            if not url:
+                return None, "通义未返回图片"
+            ir = _req.get(url, timeout=120)  # 24 小时有效的临时 URL，需立即下载
+            if ir.status_code != 200:
+                return None, "通义结果图下载失败"
+            return Image.open(io.BytesIO(ir.content)).convert("RGB"), None
+        except Exception as e:
+            return None, f"通义编辑异常: {e}"
+
+    out, err = _call(key, api_base)
+    if out is not None:
+        return out, None
+    # 主通道失败（如 Token Plan 额度用尽）：备用通道兜底重试一次
+    bkey = cfg.get("ty_api_key_backup", "")
+    bbase = (cfg.get("ty_api_base_backup") or "https://dashscope.aliyuncs.com").rstrip("/")
+    if bkey and (bkey != key or bbase != api_base):
+        print(f"主编辑通道失败（{err[:80]}），尝试备用通道", flush=True)
+        out2, err2 = _call(bkey, bbase)
+        if out2 is not None:
+            return out2, None
+        err = f"{err}；备用通道也失败: {err2}"
+    return None, err
 
 
 def _wx_image_edit(img, edit, mask=None):

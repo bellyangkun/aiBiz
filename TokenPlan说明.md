@@ -112,12 +112,15 @@ CLI 用 `--config token-plan` 配置的 key 时，需要配 `--base-url` 指向 
   "model": "MiniMax-M3",
   "ty_api_key": "sk-sp-...",            // Token Plan key（编辑层）
   "ty_api_base": "https://token-plan.cn-beijing.maas.aliyuncs.com",
+  "ty_api_key_backup": "sk-ws-...",     // 备用通道（按量付费 key）：主通道失败（如套餐额度用尽）自动重试
   "ty_model": "wan2.7-image-pro",
   "ty_engine": "qwen"
 }
 ```
 
 - `ty_api_base` 缺省 = 按量端点；配上 Token Plan 域名后，**全部图像编辑走套餐 Credits**
+- `ty_api_key_backup` 可选：主通道调用失败时自动用备用 key（默认按量端点）重试一次，
+  两个通道都失败才向用户报错。`ty_api_base_backup` 可覆盖备用端点（默认 dashscope 按量）
 - 切回按量付费：删掉 `ty_api_base`，`ty_api_key` 换回 sk-ws- key
 - 配置每次请求实时读取，改完**不用重启服务**
 
