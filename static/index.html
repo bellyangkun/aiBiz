@@ -474,9 +474,11 @@ function compressImage(file){
   return new Promise(res=>{
     const img=new Image();
     img.onload=()=>{
-      const s=Math.min(1,1024/Math.max(img.width,img.height));
+      let s=Math.min(1,1024/Math.max(img.width,img.height));
+      // 百炼要求图片宽高 ≥384，太小的参考图放大到下限
+      if(Math.max(img.width,img.height)<384)s=384/Math.max(img.width,img.height);
       const c=document.createElement('canvas');
-      c.width=img.width*s;c.height=img.height*s;
+      c.width=Math.round(img.width*s);c.height=Math.round(img.height*s);
       c.getContext('2d').drawImage(img,0,0,c.width,c.height);
       res(c.toDataURL('image/jpeg',0.85));
     };

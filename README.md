@@ -31,13 +31,15 @@ PORT=8090 python3 retouch_api.py
   "api_base": "https://api.minimaxi.com/v1",
   "model": "MiniMax-M3",
   "ty_api_key": "sk-...",             // 百炼 DashScope（qwen 图像编辑）
+  "ty_model": "wan2.7-image-pro",     // 图像编辑模型（默认 qwen-image-edit-plus；按套餐可选 wan2.7-image(-pro)、qwen-image-3.0-pro）
   "wx_api_key": "sk-...",             // 万相独立 key（可选，不配则用 ty_api_key）
-  "ty_engine": "wanx"                 // 图像编辑引擎：wanx=万相（默认 qwen=qwen-image-edit-plus）
+  "ty_engine": "wanx"                 // 图像编辑引擎：wanx=万相（默认 qwen=ty_model 指定的模型）
 }
 ```
 
-说明：万相（`wanx2.1-imageedit`）走异步任务，区域修改用 mask 局部重绘、整图修改用
-description_edit；**带参考图的多图编辑和文档模式（框外像素零改动）会自动回退 qwen**。
+说明：`ty_engine=wanx` 时走万相旧接口（`wanx2.1-imageedit` 异步任务，mask 局部重绘）；
+默认走 `ty_model` 指定的模型（同步多模态接口，支持多图参考和文档模式）。
+百炼要求图片宽高 ≥384，过小的图会自动放大。
 
 ## 接口
 

@@ -225,9 +225,13 @@ def _ty_image_edit(img, edit, ref_image=""):
     key = cfg.get("ty_api_key", "")
     if not key:
         return None, "未配置通义 API Key（~/image_analyzer_config.json 的 ty_api_key）"
+    model = cfg.get("ty_model", "qwen-image-edit-plus")  # 可换 wan2.7-image-pro 等
     buf = io.BytesIO()
     pic = img.convert("RGB").copy()
     pic.thumbnail((2048, 2048))  # 官方建议宽高均在 384~3072 之间
+    if min(pic.size) < 384:  # 太小会被拒（Error validating image），放大到下限
+        s = 384 / min(pic.size)
+        pic = pic.resize((int(pic.width * s), int(pic.height * s)), Image.LANCZOS)
     pic.save(buf, "JPEG", quality=90)
     b64 = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
     if isinstance(ref_image, (list, tuple)):
@@ -240,7 +244,7 @@ def _ty_image_edit(img, edit, ref_image=""):
     try:
         r = _req.post("https://dashscope.aliyuncs.com/api/v1/services/aigc/"
                       "multimodal-generation/generation",
-                      json={"model": "qwen-image-edit-plus",
+                      json={"model": model,
                             "input": {"messages": [{"role": "user", "content": content}]},
                             "parameters": {"n": 1, "watermark": False,
                                            "prompt_extend": True}},
@@ -555,7 +559,9 @@ def api_retouch():
         reply = ""
         edit = instruction
         if api_key:  # 理解层失败不至于不能用——退回用户原话当编辑指令
-            plan = _ai_retouch_plan(img, instruction, history)
+            plan = _ai_retouch_plan(img, instruction
+                                    + ("（用户另外附了一张参考图，参考图中就是要添加的人/物体）"
+                                       if ref_image else ""), history)
             if plan:
                 reply = (plan.get("reply") or "").strip()
                 edit = (plan.get("edit") or "").strip() or instruction
