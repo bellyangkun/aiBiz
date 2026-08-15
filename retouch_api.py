@@ -498,6 +498,23 @@ def api_retouch():
     return jsonify({"token": token, "reply": reply or "改好了，看看效果"})
 
 
+@app.route("/api/describe_image", methods=["POST"])
+def api_describe_image():
+    """理解整张图片：MiniMax 一两句话描述，上传后自动填入修改描述输入框"""
+    data = request.get_json(silent=True) or {}
+    p = _upload_path(os.path.basename(str(data.get("token") or "").strip()))
+    if not p:
+        return jsonify({"error": "图片不存在"}), 404
+    img = Image.open(p).convert("RGB")
+    desc = _mm_vision_text(
+        "请用一两句话描述这张照片：主体是什么、场景环境、构图和色调。"
+        "例如「一只金毛犬坐在秋天的公园里，背景是金黄色树叶，暖色调」。"
+        "只输出描述本身，不要输出其他内容。", img, max_tokens=120)
+    if not desc:
+        return jsonify({"error": "AI 理解失败"}), 502
+    return jsonify({"desc": desc.strip()})
+
+
 @app.route("/api/describe_region", methods=["POST"])
 def api_describe_region():
     """理解框选区域内容：裁剪（带少量上下文）→ MiniMax 一句话描述，供填入该块的输入框"""

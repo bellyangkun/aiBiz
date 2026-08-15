@@ -131,8 +131,9 @@ button{font-family:inherit;cursor:pointer;border:none}
   border:1px solid #c7cbe8}
 .rg-refx{color:var(--warn);font-size:12px;cursor:pointer;margin-left:-4px}
 .chat-input{display:flex;gap:10px;padding:14px 18px;border-top:1px solid var(--line)}
-.chat-input textarea{flex:1;resize:none;height:52px;padding:10px 12px;border-radius:12px;
-  border:1px solid var(--line);font-family:inherit;font-size:14px;outline:none;transition:.15s}
+.chat-input textarea{flex:1;resize:none;min-height:52px;max-height:160px;padding:10px 12px;border-radius:12px;
+  border:1px solid var(--line);font-family:inherit;font-size:14px;outline:none;transition:.15s;
+  overflow-y:auto;line-height:1.6}
 .chat-input textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(99,102,241,.12)}
 
 /* 灯箱 */
@@ -227,7 +228,8 @@ button{font-family:inherit;cursor:pointer;border:none}
     </div>
     <div class="region-panel" id="regionPanel"></div>
     <div class="chat-input">
-      <textarea id="inp" placeholder="描述你想要的修改…（Enter 发送，Shift+Enter 换行）"
+      <textarea id="inp" placeholder="针对整个画面的修改描述…（Enter 发送，Shift+Enter 换行）"
+        oninput="growInp()"
         onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg()}"></textarea>
       <button class="btn primary" id="btnSend" onclick="sendMsg()">发送</button>
     </div>
@@ -280,6 +282,27 @@ function enterWorkspace(){
   $('mainImg').onload=renderRegions;
   $('mainImg').src='/api/image/'+curToken;
   updateCanvas();
+  analyzeWhole();
+}
+async function analyzeWhole(){
+  // 上传后先理解整张图片，把描述填进修改输入框，用户补充要改成什么
+  try{
+    const r=await fetch('/api/describe_image',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({token:curToken})});
+    if(r.status===401){location.href='/login';return}
+    const d=await r.json();
+    if(r.ok&&d.desc&&!$('inp').value.trim()){
+      $('inp').value='这张照片是：'+d.desc+'。帮我：';
+      growInp();
+      $('inp').focus();
+      toast('已识别图片内容，请补充要改成什么');
+    }
+  }catch(_){}
+}
+function growInp(){
+  const t=$('inp');
+  t.style.height='auto';
+  t.style.height=Math.min(t.scrollHeight,160)+'px';
 }
 function resetAll(){
   rtStack=[];rtFwd=[];rtExt={};rtRegions=[];refImages=[];docMode=false;busy=false;
@@ -495,7 +518,7 @@ async function sendMsg(){
     ? '🛠 一次性修改 '+edits.length+' 块区域：'+edits.map((e,i)=>'区域'+(i+1)+'「'+e.instruction+'」').join('，')
     : text;
   addMsg('user',esc(showText)+(tags?'<div class="tags">'+tags+'</div>':''));
-  $('inp').value='';
+  $('inp').value='';$('inp').style.height='';
   const typing=document.createElement('div');typing.className='typing';typing.innerHTML='<i></i><i></i><i></i>';
   $('chatBody').appendChild(typing);$('chatBody').scrollTop=$('chatBody').scrollHeight;
   const payload={token:curToken,base_token:currentToken(),
