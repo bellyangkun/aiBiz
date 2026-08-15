@@ -254,7 +254,9 @@ def _ty_image_edit(img, edit, ref_image=""):
                           json={"model": mdl,
                                 "input": {"messages": [{"role": "user", "content": content}]},
                                 "parameters": {"n": 1, "watermark": False,
-                                               "prompt_extend": True}},
+                                               # 带参考图时关掉提示词扩展：它会不看图盲写，
+                                               # 把"按参考图加 logo/物体"改写成自由发挥，破坏保真
+                                               "prompt_extend": not refs}},
                           headers={"Authorization": "Bearer " + k}, timeout=240)
             if r.status_code != 200:
                 return None, f"通义编辑失败 {r.status_code}: {r.text[:200]}"
@@ -421,6 +423,34 @@ def _mm_redraw(img, gen_prompt, cfg, token):
 
 # ---------------- 修图主接口 ----------------
 
+def _paste_ref(img, rect_vals, ref_data):
+    """把参考图（logo/贴纸/水印）本地叠加到指定区域：等比缩放进区域（约92%），
+    居中贴入，保留透明通道，区域外像素不动。AI 生成模型无法保证 logo 图案/文字不变形，
+    logo 类需求走这个确定性路径。返回 (PIL图, None) 或 (None, 错误)。"""
+    try:
+        b64 = ref_data.split(",", 1)[1] if "," in ref_data else ref_data
+        ref = Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGBA")
+    except Exception:
+        return None, "参考图无法识别"
+    rx, ry, rw, rh = rect_vals
+    W, H = img.size
+    x0, y0 = int(rx * W), int(ry * H)
+    bw, bh = max(8, int(rw * W)), max(8, int(rh * H))
+    s = min(bw / ref.width, bh / ref.height) * 0.92
+    ref = ref.resize((max(1, int(ref.width * s)), max(1, int(ref.height * s))), Image.LANCZOS)
+    px = x0 + (bw - ref.width) // 2
+    py = y0 + (bh - ref.height) // 2
+    out = img.convert("RGBA")
+    out.alpha_composite(ref, (px, py))
+    return out.convert("RGB"), None
+
+
+def _is_sticker_intent(instr, ref):
+    """logo/贴纸/水印类需求 + 有参考图：本地叠加，不走 AI"""
+    return bool(ref) and any(k in instr for k in
+                             ("logo", "Logo", "LOGO", "贴纸", "水印", "图标", "标志", "徽标"))
+
+
 def _parse_rect(rect):
     """归一化矩形 {x,y,w,h} → (rx,ry,rw,rh)，无效返回 None"""
     try:
@@ -504,6 +534,18 @@ def api_retouch():
                 if not rv:
                     results.append(f"区域{i + 1}框选无效")
                     continue
+                # logo/贴纸/水印 + 专用参考图：本地像素级叠加，图案文字 100% 不变形
+                e_ref0 = str(e.get("ref_image") or "")
+                if not e_ref0.startswith("data:image"):
+                    e_ref0 = ""
+                if _is_sticker_intent(instr, e_ref0):
+                    out2, err = _paste_ref(out, rv, e_ref0)
+                    if out2 is None:
+                        results.append(f"区域{i + 1}失败：{err}")
+                    else:
+                        out = out2
+                        done.append(i + 1)
+                    continue
                 # 框选只是位置提示：编辑范围向外扩大（约1.6倍，限制在图内），
                 # 让添加的人/物体大小由画面比例决定，不被框的大小限定
                 rx, ry, rw, rh = rv
@@ -538,10 +580,12 @@ def api_retouch():
                     e_ref = ""
                 refs = [e_ref] if e_ref else ref_images  # 区块自己的参考图优先于全局参考图
                 if refs:
-                    instr = (f"前面{len(refs)}张图片是要添加的人/物体的参考图，"
-                             "最后一张是要修改的图。把参考图中的人/物体自然地加入图中，"
-                             "外形尽量贴近参考图，大小、透视和光影与底图协调。"
-                             "具体要求：" + instr)
+                    instr = (f"前面{len(refs)}张图片是要添加内容的参考图，最后一张是要修改的图。"
+                             "若参考图是 logo、图标或文字标识：把它作为贴纸完整清晰地加入图中，"
+                             "图案、颜色和文字与参考图完全一致，不重绘不变形，"
+                             "大小适中（约占画面宽度的 8~15%），除非用户另有要求；"
+                             "若参考图是人物或物体：自然地加入图中，外形尽量贴近参考图，"
+                             "大小、透视和光影与底图协调。具体要求：" + instr)
                 out2, err = _ty_doc_edit(out, edit_rect, instr, refs)
                 if out2 is None:
                     results.append(f"区域{i + 1}失败：{err}")
@@ -584,7 +628,9 @@ def api_retouch():
         edit = instruction
         if api_key:  # 理解层失败不至于不能用——退回用户原话当编辑指令
             plan = _ai_retouch_plan(img, instruction
-                                    + ("（用户另外附了参考图，参考图中就是要添加的人/物体）"
+                                    + ("（用户另外附了参考图：参考图会直接发给图像编辑模型，"
+                                       "你看不到它，不要向用户索要或声称没收到；"
+                                       "参考图中就是要添加的人/物体/logo）"
                                        if (ref_image or ref_images) else ""), history)
             if plan:
                 reply = (plan.get("reply") or "").strip()
@@ -605,9 +651,12 @@ def api_retouch():
         refs_single = ([ref_image] if ref_image else []) + ref_images  # 单图参数+列表，最多2张
         refs_single = refs_single[:2]
         if refs_single:
-            edit = (f"前面{len(refs_single)}张图片是要添加的人/物体的参考图，最后一张是底图。"
-                    "请把参考图中的人/物体自然地加入底图，外形尽量贴近参考图，"
-                    "大小、透视和光影与底图协调，底图其余内容保持原样。具体要求：" + instruction)
+            edit = (f"前面{len(refs_single)}张图片是要添加内容的参考图，最后一张是底图。"
+                    "若参考图是 logo、图标或文字标识：把它作为贴纸完整清晰地加入底图，"
+                    "图案、颜色和文字与参考图完全一致，不重绘不变形，"
+                    "大小适中（约占画面宽度的 8~15%），除非用户另有要求；"
+                    "若参考图是人物或物体：自然地加入底图，外形尽量贴近参考图，"
+                    "大小、透视和光影与底图协调。底图其余内容保持原样。具体要求：" + instruction)
         if _use_wanx(refs_single):
             out, err = _wx_image_edit(img, edit)
         else:

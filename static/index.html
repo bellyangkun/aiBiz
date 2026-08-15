@@ -495,8 +495,15 @@ function compressImage(file){
       if(Math.max(img.width,img.height)<384)s=384/Math.max(img.width,img.height);
       const c=document.createElement('canvas');
       c.width=Math.round(img.width*s);c.height=Math.round(img.height*s);
-      c.getContext('2d').drawImage(img,0,0,c.width,c.height);
-      res(c.toDataURL('image/jpeg',0.85));
+      const ctx=c.getContext('2d');
+      ctx.drawImage(img,0,0,c.width,c.height);
+      // 有透明像素（logo/贴纸类）用 PNG 保留透明底，否则 JPEG 更小
+      let alpha=false;
+      try{
+        const d=ctx.getImageData(0,0,c.width,c.height).data;
+        for(let i=3;i<d.length;i+=40){if(d[i]<250){alpha=true;break}}
+      }catch(_){}
+      res(c.toDataURL(alpha?'image/png':'image/jpeg',0.85));
     };
     img.src=URL.createObjectURL(file);
   });
@@ -536,7 +543,11 @@ async function sendMsg(){
     }
   }
   busy=true;$('btnSend').disabled=true;updateToolbar();
-  const merged=batch&&mergeMode;
+  let merged=batch&&mergeMode;
+  if(merged&&edits.some(e=>e.ref_image&&/logo|贴纸|水印|图标|标志|徽标/i.test(e.instruction))){
+    merged=false;  // logo/贴纸走逐块路径本地像素级叠加，合并模式无法保证图案文字不变形
+    toast('检测到 logo/贴纸需求：本次自动用精准模式，logo 100% 原样叠加');
+  }
   let tags='';
   if(merged)tags+='<span class="tag">⚡ 合并一次改</span>';
   else if(batch)tags+='<span class="tag">▣ 框选 '+rtRegions.length+' 块</span>';
