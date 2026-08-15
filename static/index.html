@@ -216,7 +216,15 @@ button{font-family:inherit;cursor:pointer;border:none}
   <div class="panel chat">
     <div class="panel-hd">
       <span class="ttl">💬 修图对话</span>
-      <button class="btn sm ghost" onclick="pickRef()">📎 参考图</button>
+      <span style="display:flex;gap:8px;align-items:center">
+        <select id="modelSel" title="编辑模型：自动=主通道用配置的高质模型，失败自动切快速模型；手动选则主备通道都用所选模型"
+          style="padding:5px 8px;border:1px solid var(--line);border-radius:8px;font-size:12.5px;background:#fff;color:var(--ink);outline:none">
+          <option value="">自动（推荐）</option>
+          <option value="qwen-image-3.0-pro">✨ 高质 3.0（较慢）</option>
+          <option value="qwen-image-edit-plus">⚡ 快速 edit</option>
+        </select>
+        <button class="btn sm ghost" onclick="pickRef()">📎 参考图</button>
+      </span>
     </div>
     <div class="chat-body" id="chatBody">
       <div class="msg ai">你好！我是你的 AI 修图师。<br>直接告诉我怎么改，例如：「把天空变成湛蓝色」「去掉右边的人」「在桌上加一杯咖啡」。</div>
@@ -259,6 +267,9 @@ let curToken='', curW=0, curH=0;        // 上传原图
 let rtStack=[], rtFwd=[], rtExt={}; // 已应用步骤{token,text} / 可重做步骤 / 结果扩展名
 let rtRegions=[], rectMode=false, docMode=false, busy=false, refImages=[];
 const $=id=>document.getElementById(id);
+// 编辑模型选择（自动/高质3.0/快速edit），记住上次选择
+$('modelSel').value=localStorage.getItem('rt-model')||'';
+$('modelSel').onchange=function(){localStorage.setItem('rt-model',this.value)};
 
 /* ---------- 上传 ---------- */
 const dz=$('dropzone'), fi=$('fileInput');
@@ -566,6 +577,7 @@ async function sendMsg(){
   $('chatBody').appendChild(typing);$('chatBody').scrollTop=$('chatBody').scrollHeight;
   const payload={token:curToken,base_token:currentToken(),
     history:rtStack.slice(-6).map(s=>s.text)};
+  payload.model=$('modelSel').value;
   if(merged){
     // 合并模式：所有区域+总体合成一条指令，一次编辑出图
     const parts=edits.map((e,i)=>(i+1)+'. '+jsRegionDesc(rtRegions[i])+'：'+e.instruction);

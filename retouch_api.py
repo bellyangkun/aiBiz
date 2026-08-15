@@ -217,10 +217,11 @@ def _ai_retouch_plan(img, instruction, history):
         "不要输出任何其他内容。", img, max_tokens=600)
 
 
-def _ty_image_edit(img, edit, ref_image=""):
+def _ty_image_edit(img, edit, ref_image="", model_override=""):
     """百炼图像编辑（ty_model 指定模型，默认 qwen-image-edit-plus）：base64 传图 + 编辑指令。
     ref_image 为可选参考图：单个 data URI 或列表（最多取 2 张，限制总图数 ≤3）。
     参考图在前、底图在后（输出比例以最后一张图为准）。
+    model_override：前端按请求指定模型（空=用配置）。指定后主备通道都用该模型。
     主通道（ty_api_key + ty_api_base，可配 Token Plan）失败时，
     自动用备用通道（ty_api_key_backup + ty_api_base_backup，默认按量端点）重试一次。
     成功返回 (PIL图, None)，失败返回 (None, 错误信息)。"""
@@ -228,7 +229,7 @@ def _ty_image_edit(img, edit, ref_image=""):
     key = cfg.get("ty_api_key", "")
     if not key:
         return None, "未配置通义 API Key（~/image_analyzer_config.json 的 ty_api_key）"
-    model = cfg.get("ty_model", "qwen-image-edit-plus")  # 可换 wan2.7-image-pro 等
+    model = model_override or cfg.get("ty_model", "qwen-image-edit-plus")  # 可换 wan2.7-image-pro 等
     # 端点：默认按量付费；Token Plan 套餐配 https://token-plan.cn-beijing.maas.aliyuncs.com
     api_base = (cfg.get("ty_api_base") or "https://dashscope.aliyuncs.com").rstrip("/")
     buf = io.BytesIO()
@@ -280,7 +281,7 @@ def _ty_image_edit(img, edit, ref_image=""):
     bkey = cfg.get("ty_api_key_backup", "")
     bbase = (cfg.get("ty_api_base_backup") or "https://dashscope.aliyuncs.com").rstrip("/")
     if bkey and (bkey != key or bbase != api_base):
-        bmodel = cfg.get("ty_model_backup", "qwen-image-edit-plus")
+        bmodel = model_override or cfg.get("ty_model_backup", "qwen-image-edit-plus")
         print(f"主编辑通道失败（{err[:80]}），尝试备用通道（{bmodel}）", flush=True)
         out2, err2 = _call(bkey, bbase, bmodel)
         if out2 is not None:
@@ -354,11 +355,11 @@ def _use_wanx(ref_images=None):
     return _load_cfg().get("ty_engine", "qwen") == "wanx" and not ref_images
 
 
-def _ty_doc_edit(img, rect_vals, instruction, ref_images=None, doc_precise=False):
+def _ty_doc_edit(img, rect_vals, instruction, ref_images=None, doc_precise=False, model=""):
     """区域编辑。两条路径：
     - 万相（ty_engine=wanx 且无参考图且非文档模式）：整图 + mask 局部重绘，一次返回；
     - qwen（默认/带参考图/文档模式）：框选区域裁出 → 编辑 → 原样贴回（边缘羽化），区域外像素完全不变。
-    ref_images 可选：要加入的人/物体参考图（最多 2 张）。"""
+    ref_images 可选：要加入的人/物体参考图（最多 2 张）。model 可选：按请求指定编辑模型。"""
     from PIL import ImageDraw, ImageFilter
     rx, ry, rw, rh = rect_vals
     W, H = img.size
@@ -378,7 +379,7 @@ def _ty_doc_edit(img, rect_vals, instruction, ref_images=None, doc_precise=False
     if scale > 1.0:
         crop = crop.resize((int(cw * scale), int(ch * scale)), Image.LANCZOS)
     edited, err = _ty_image_edit(crop, instruction + "。只改动要求的内容，其余部分保持原样。",
-                                 ref_images or "")
+                                 ref_images or "", model)
     if edited is None:
         return None, err
     edited = edited.resize((cw, ch), Image.LANCZOS)
@@ -474,6 +475,11 @@ def _region_desc(rx, ry, rw, rh):
     return f"画面{vt}{hz}区域（约占画面宽 {int(rw * 100)}%、高 {int(rh * 100)}%）"
 
 
+# 前端可选的编辑模型白名单（空 = 用配置 ty_model / ty_model_backup）
+_EDIT_MODELS = {"qwen-image-edit-plus", "qwen-image-3.0-pro",
+                "wan2.7-image", "wan2.7-image-pro"}
+
+
 @app.route("/api/retouch", methods=["POST"])
 def api_retouch():
     """对话式 AI 修图。只出预览，不动上传原图。
@@ -490,6 +496,9 @@ def api_retouch():
     edits = data.get("edits") or []
     ref_images = [r for r in (data.get("ref_images") or [])
                   if str(r).startswith("data:image")][:2]
+    req_model = str(data.get("model") or "").strip()
+    if req_model not in _EDIT_MODELS:
+        req_model = ""
     if not instruction and not edits:
         return jsonify({"error": "请填写修图要求"}), 400
     if region_desc:
@@ -586,7 +595,7 @@ def api_retouch():
                              "大小适中（约占画面宽度的 8~15%），除非用户另有要求；"
                              "若参考图是人物或物体：自然地加入图中，外形尽量贴近参考图，"
                              "大小、透视和光影与底图协调。具体要求：" + instr)
-                out2, err = _ty_doc_edit(out, edit_rect, instr, refs)
+                out2, err = _ty_doc_edit(out, edit_rect, instr, refs, model=req_model)
                 if out2 is None:
                     results.append(f"区域{i + 1}失败：{err}")
                 else:
@@ -606,7 +615,7 @@ def api_retouch():
                 if _use_wanx(ref_images):
                     gout, gerr = _wx_image_edit(out, gedit)
                 else:
-                    gout, gerr = _ty_image_edit(out, gedit, ref_images)
+                    gout, gerr = _ty_image_edit(out, gedit, ref_images, req_model)
                 if gout is None:
                     results.append(f"总体画面修改失败：{gerr}")
                 else:
@@ -642,7 +651,8 @@ def api_retouch():
             if not rect_vals:
                 return jsonify({"error": "文档模式请先在图片上框选要修改的区域"}), 400
             out, err = _ty_doc_edit(img, rect_vals, instruction
-                                    + "。其余文字、排版和格式保持不变", doc_precise=True)
+                                    + "。其余文字、排版和格式保持不变", doc_precise=True,
+                                    model=req_model)
             if out is None:
                 return jsonify({"error": err}), 502
             out.save(os.path.join(PREVIEW_DIR, token + ".png"), "PNG")
@@ -660,7 +670,7 @@ def api_retouch():
         if _use_wanx(refs_single):
             out, err = _wx_image_edit(img, edit)
         else:
-            out, err = _ty_image_edit(img, edit, refs_single)
+            out, err = _ty_image_edit(img, edit, refs_single, req_model)
         if out is None:
             return jsonify({"error": err}), 502
         out.save(os.path.join(PREVIEW_DIR, token + ".jpg"), "JPEG", quality=95)
