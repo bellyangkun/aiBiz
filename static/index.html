@@ -559,7 +559,10 @@ async function sendMsg(){
     // 合并模式：所有区域+总体合成一条指令，一次编辑出图
     const parts=edits.map((e,i)=>(i+1)+'. '+jsRegionDesc(rtRegions[i])+'：'+e.instruction);
     payload.instruction='对这张照片做以下修改：'+parts.join('；')+(gtext?'；总体：'+gtext:'');
-    payload.ref_images=refImages;
+    // 区域专用参考图优先带上，全局参考图其次（AI 多图上限 2 张）
+    const allRefs=edits.map(e=>e.ref_image).filter(Boolean).concat(refImages);
+    payload.ref_images=allRefs.slice(0,2);
+    if(allRefs.length>2)toast('参考图共 '+allRefs.length+' 张，超出 AI 多图上限，已只带前 2 张（区域参考图优先）');
   }
   else if(batch){payload.edits=edits;payload.ref_images=refImages;payload.instruction=gtext;}
   else{payload.instruction=text;payload.ref_image=refImages[0]||'';payload.doc_mode=docMode;}
