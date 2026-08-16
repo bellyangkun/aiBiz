@@ -197,8 +197,8 @@ button{font-family:inherit;cursor:pointer;border:none}
       <div class="toolbar">
         <button class="btn sm ghost" id="btnRect" onclick="toggleRect()">▣ 框选区域</button>
         <button class="btn sm ghost" id="btnDoc" onclick="toggleDoc()">📄 文档模式</button>
-        <button class="btn sm ghost" onclick="goBack()" id="btnBack" disabled>« 向后一步</button>
-        <button class="btn sm ghost" onclick="goFwd()" id="btnFwd" disabled>向前一步 »</button>
+        <button class="btn sm ghost" onclick="goBack()" id="btnBack" disabled>« 前一步</button>
+        <button class="btn sm ghost" onclick="goFwd()" id="btnFwd" disabled>后一步 »</button>
         <button class="btn sm ghost" onclick="goOriginal()" id="btnReset" disabled>↺ 原图</button>
         <button class="btn sm primary" onclick="downloadCurrent()" id="btnDl" disabled>⬇ 下载</button>
       </div>
@@ -635,19 +635,19 @@ function goBack(){
   if(!rtStack.length)return;
   rtFwd.push(rtStack.pop());
   updateCanvas();
-  addMsg('ai','已向后一步。'+(rtStack.length?'当前是第 '+rtStack.length+' 次修改的结果。':'当前是原图。'));
+  addMsg('ai','已回到前一步。'+(rtStack.length?'当前是第 '+rtStack.length+' 次修改的结果。':'当前是原图。'));
 }
 function goFwd(){
   if(!rtFwd.length)return;
   rtStack.push(rtFwd.pop());
   updateCanvas();
-  addMsg('ai','已向前一步，当前是第 '+rtStack.length+' 次修改的结果。');
+  addMsg('ai','已回到后一步，当前是第 '+rtStack.length+' 次修改的结果。');
 }
 function goOriginal(){
   if(!rtStack.length)return;
   while(rtStack.length)rtFwd.push(rtStack.pop());  // 全部进重做栈，仍可向前找回
   updateCanvas();
-  addMsg('ai','已回到原图，可以重新开始修（也可点「向前一步」找回修改）。');
+  addMsg('ai','已回到原图，可以重新开始修（也可点「后一步」找回修改）。');
 }
 
 /* ---------- 灯箱 ---------- */
